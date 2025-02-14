@@ -622,44 +622,58 @@ def process_image(image):
 
 def process_uploaded_file(uploaded_file, lang):
     """
-    معالجة الملف المرفوع
+    معالجة الملف المرفوع (صورة أو PDF)
     """
     try:
         file_extension = uploaded_file.name.lower().split('.')[-1]
         
         if file_extension == 'pdf':
+            # معالجة ملف PDF
+            if not check_dependencies():
+                st.error(get_text('pdf_not_supported', lang))
+                return
             process_pdf(uploaded_file.getvalue(), lang)
         else:
-            image = Image.open(uploaded_file)
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.image(image, caption=get_text('original_image', lang), use_container_width=True)
-            
-            with st.spinner(get_text('processing', lang)):
-                processed_image, face_count = process_image(image)
+            # معالجة الصورة
+            try:
+                image = Image.open(uploaded_file)
                 
-                if face_count > 0:
-                    st.success(get_text('faces_found', lang).format(face_count))
-                else:
-                    st.warning(get_text('no_faces', lang))
+                # عرض الصورة الأصلية
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.image(image, caption=get_text('original_image', lang), use_container_width=True)
+                
+                # معالجة الصورة
+                with st.spinner(get_text('processing', lang)):
+                    processed_image, face_count = process_image(image)
+                    
+                    if face_count > 0:
+                        st.success(get_text('faces_found', lang).format(face_count))
+                    else:
+                        st.warning(get_text('no_faces', lang))
+                
+                # عرض الصورة المعالجة
+                with col2:
+                    st.image(processed_image, caption=get_text('processed_image', lang), use_container_width=True)
+                
+                # زر التحميل
+                if processed_image is not None:
+                    buf = io.BytesIO()
+                    processed_image.save(buf, format="PNG", quality=95, optimize=True)
+                    st.download_button(
+                        get_text('download_button', lang),
+                        buf.getvalue(),
+                        "blurred_image.png",
+                        "image/png"
+                    )
             
-            with col2:
-                st.image(processed_image, caption=get_text('processed_image', lang), use_container_width=True)
-            
-            # زر التحميل
-            buf = io.BytesIO()
-            processed_image.save(buf, format="PNG", quality=95)
-            st.download_button(
-                get_text('download_button', lang),
-                buf.getvalue(),
-                "blurred_image.png",
-                "image/png"
-            )
+            except Exception as e:
+                logger.error(f"Error processing image: {str(e)}")
+                st.error(get_text('processing_error', lang))
     
     except Exception as e:
-        logger.error(f"Error processing file: {str(e)}")
-        st.error(get_text('processing_error', lang))
+        logger.error(f"Error handling uploaded file: {str(e)}")
+        st.error(get_text('app_error', lang))
 
 def main():
     try:
