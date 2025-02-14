@@ -328,30 +328,57 @@ def get_pdf_info(pdf_bytes):
         logger.error(f"Error reading PDF info: {str(e)}")
         return 0
 
+def check_dependencies():
+    """
+    التحقق من وجود المتطلبات الأساسية
+    """
+    try:
+        from pdf2image import convert_from_bytes
+        from pikepdf import Pdf
+        return True
+    except Exception as e:
+        logger.error(f"Missing dependencies: {str(e)}")
+        return False
+
 def process_pdf_page(pdf_bytes, page_number):
     """
     معالجة صفحة واحدة من ملف PDF
     """
     try:
+        # التحقق من صحة البيانات
+        if not pdf_bytes or page_number < 1:
+            return None
+            
         images = convert_from_bytes(
             pdf_bytes,
             first_page=page_number,
             last_page=page_number,
             dpi=200,
             size=(1200, None),
-            thread_count=1,  # تقليل استخدام المعالجة المتوازية
+            thread_count=1,
             grayscale=False,
-            use_pdftocairo=True  # استخدام محرك PDF أكثر استقراراً
+            use_pdftocairo=True,
+            timeout=60  # زيادة مهلة المعالجة
         )
-        return images[0] if images else None
+        
+        if not images:
+            logger.warning(f"No image extracted from page {page_number}")
+            return None
+            
+        return images[0]
+        
     except Exception as e:
-        logger.error(f"Error processing PDF page: {str(e)}")
+        logger.error(f"Error processing PDF page {page_number}: {str(e)}")
         return None
 
 def process_pdf(pdf_bytes, lang):
     """
     معالجة ملف PDF كامل
     """
+    if not check_dependencies():
+        st.error(get_text('pdf_not_supported', lang))
+        return
+        
     try:
         # التحقق من عدد الصفحات
         total_pages = get_pdf_info(pdf_bytes)
@@ -365,9 +392,13 @@ def process_pdf(pdf_bytes, lang):
             total_pages = 500
         
         # إنشاء شريط التقدم
-        progress_text = st.empty()
-        progress_bar = st.progress(0)
+        progress_container = st.container()
+        with progress_container:
+            progress_text = st.empty()
+            progress_bar = st.progress(0)
+            
         processed_images = []
+        error_pages = []
         
         # معالجة الصفحات
         for page_num in range(1, total_pages + 1):
@@ -380,29 +411,39 @@ def process_pdf(pdf_bytes, lang):
                 image = process_pdf_page(pdf_bytes, page_num)
                 if image:
                     processed_image, face_count = process_image(image)
-                    processed_images.append(processed_image)
-                    
-                    # عرض النتائج
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.image(image, caption=f"{get_text('page', lang)} {page_num} - {get_text('original_image', lang)}", 
-                                use_container_width=True)
-                    with col2:
-                        st.image(processed_image, caption=f"{get_text('page', lang)} {page_num} - {get_text('processed_image', lang)}", 
-                                use_container_width=True)
-                    
-                    if face_count > 0:
-                        st.success(get_text('faces_found', lang).format(face_count))
-                    
-                    # تنظيف الذاكرة
+                    if processed_image is not None:
+                        processed_images.append(processed_image)
+                        
+                        # عرض النتائج
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.image(image, caption=f"{get_text('page', lang)} {page_num} - {get_text('original_image', lang)}", 
+                                    use_container_width=True)
+                        with col2:
+                            st.image(processed_image, caption=f"{get_text('page', lang)} {page_num} - {get_text('processed_image', lang)}", 
+                                    use_container_width=True)
+                        
+                        if face_count > 0:
+                            st.success(get_text('faces_found', lang).format(face_count))
+                else:
+                    error_pages.append(page_num)
+                
+                # تنظيف الذاكرة
+                if 'image' in locals():
                     del image
-                    gc.collect()
+                gc.collect()
+                
             except Exception as e:
                 logger.error(f"Error processing page {page_num}: {str(e)}")
+                error_pages.append(page_num)
                 continue
         
         progress_bar.progress(1.0)
         progress_text.text(get_text('pdf_complete', lang))
+        
+        # عرض الأخطاء إن وجدت
+        if error_pages:
+            st.warning(f"Failed to process pages: {', '.join(map(str, error_pages))}")
         
         # إنشاء PDF من الصور المعالجة
         if processed_images:
@@ -428,7 +469,7 @@ def process_pdf(pdf_bytes, lang):
             except Exception as e:
                 logger.error(f"Error saving PDF: {str(e)}")
                 st.error(get_text('pdf_processing_error', lang))
-            
+        
     except Exception as e:
         logger.error(f"Error processing PDF: {str(e)}")
         st.error(get_text('pdf_processing_error', lang))
