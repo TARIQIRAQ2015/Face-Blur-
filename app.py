@@ -528,24 +528,73 @@ def get_text(key, lang, *args):
         text = text.format(*args)
     return text
 
+def remove_overlapping_faces(faces, overlap_thresh=0.3):
+    """
+    إزالة التداخلات بين المستطيلات المكتشفة للوجوه
+    """
+    if len(faces) == 0:
+        return []
+    
+    # تحويل القائمة إلى مصفوفة numpy
+    faces = np.array(faces)
+    
+    # حساب المساحات
+    areas = faces[:, 2] * faces[:, 3]
+    
+    # ترتيب الوجوه حسب المساحة (من الأكبر إلى الأصغر)
+    idxs = areas.argsort()[::-1]
+    
+    # قائمة للاحتفاظ بالوجوه المقبولة
+    keep = []
+    
+    while len(idxs) > 0:
+        # إضافة أكبر وجه إلى القائمة
+        current_idx = idxs[0]
+        keep.append(current_idx)
+        
+        if len(idxs) == 1:
+            break
+            
+        # حساب نسبة التداخل مع باقي الوجوه
+        xx1 = np.maximum(faces[current_idx][0], faces[idxs[1:]][:, 0])
+        yy1 = np.maximum(faces[current_idx][1], faces[idxs[1:]][:, 1])
+        xx2 = np.minimum(faces[current_idx][0] + faces[current_idx][2],
+                        faces[idxs[1:]][:, 0] + faces[idxs[1:]][:, 2])
+        yy2 = np.minimum(faces[current_idx][1] + faces[current_idx][3],
+                        faces[idxs[1:]][:, 1] + faces[idxs[1:]][:, 3])
+        
+        w = np.maximum(0, xx2 - xx1)
+        h = np.maximum(0, yy2 - yy1)
+        
+        # حساب المساحة المتداخلة
+        overlap = (w * h) / areas[idxs[1:]]
+        
+        # حذف الوجوه المتداخلة
+        idxs = np.delete(idxs, np.concatenate(([0], np.where(overlap > overlap_thresh)[0] + 1)))
+    
+    return faces[keep].tolist()
+
 def main():
     try:
         load_css()
         configure_page()
         
-        # اختيار اللغة
-        lang = st.sidebar.selectbox(
-            "Language / اللغة",
-            ['ar', 'en'],
-            format_func=lambda x: 'العربية 🇸🇦' if x == 'ar' else 'English 🇺🇸'
-        )
+        # العنوان الرئيسي والترجمة في نفس الصف
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.title("🎭 أداة تمويه الوجوه / Face Blur Tool")
+        with col2:
+            lang = st.selectbox(
+                "🌐",
+                ['ar', 'en'],
+                format_func=lambda x: 'العربية' if x == 'ar' else 'English',
+                label_visibility="collapsed"
+            )
+        
+        st.markdown("---")
         
         # تطبيق اتجاه النص حسب اللغة
         text_class = 'arabic-text' if lang == 'ar' else 'english-text'
-        
-        # العنوان الرئيسي
-        st.markdown(f'<h1 class="{text_class}">{get_text("title", lang)}</h1>', unsafe_allow_html=True)
-        st.markdown("---")
         
         # منطقة رفع الملفات
         uploaded_file = st.file_uploader(
