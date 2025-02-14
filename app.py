@@ -1,7 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
-import mediapipe as mp
+import dlib
 from pdf2image import convert_from_bytes
 from PIL import Image
 import io
@@ -169,94 +169,43 @@ def set_luxury_style():
     </style>
     """, unsafe_allow_html=True)
 
-class EnhancedFaceDetector:
+class DlibFaceDetector:
     def __init__(self):
-        # تكوين MediaPipe للدقة العالية
-        self.mp_face = mp.solutions.face_detection.FaceDetection(
-            model_selection=1,
-            min_detection_confidence=0.7
-        )
-        
-        # تكوين Face Mesh للتأكيد
-        self.mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
-            static_image_mode=True,
-            max_num_faces=20,
-            min_detection_confidence=0.7,
-            refine_landmarks=True
-        )
-        
-        # تكوين Cascade Classifier
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
-
-    def enhance_image(self, image):
-        # تحسين جودة الصورة للكشف
-        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-        cl = clahe.apply(l)
-        enhanced = cv2.merge((cl,a,b))
-        enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
-        return enhanced
-
+        # استخدام HOG وCNN من dlib
+        self.detector = dlib.get_frontal_face_detector()
+    
     def detect_faces(self, image: np.ndarray) -> list:
         faces = []
-        height, width = image.shape[:2]
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        detected_faces = self.detector(gray, 1)
         
-        # تحسين الصورة
-        enhanced = self.enhance_image(image)
-        
-        # 1. MediaPipe Detection
-        rgb_image = cv2.cvtColor(enhanced, cv2.COLOR_BGR2RGB)
-        results = self.mp_face.process(rgb_image)
-        
-        if results.detections:
-            for detection in results.detections:
-                if detection.score[0] > 0.7:
-                    bbox = detection.location_data.relative_bounding_box
-                    x = max(0, int(bbox.xmin * width))
-                    y = max(0, int(bbox.ymin * height))
-                    w = min(int(bbox.width * width), width - x)
-                    h = min(int(bbox.height * height), height - y)
-                    
-                    # توسيع منطقة الوجه
-                    padding = 0.2
-                    x = max(0, int(x - w * padding))
-                    y = max(0, int(y - h * padding))
-                    w = min(int(w * (1 + 2*padding)), width - x)
-                    h = min(int(h * (1 + 2*padding)), height - y)
-                    
-                    faces.append({
-                        'box': [x, y, w, h],
-                        'confidence': float(detection.score[0])
-                    })
+        for face in detected_faces:
+            x, y, w, h = (face.left(), face.top(), face.width(), face.height())
+            faces.append({'box': [x, y, w, h]})
         
         return faces
 
-class EnhancedBlurProcessor:
+class FaceBlurProcessor:
     def __init__(self):
-        self.detector = EnhancedFaceDetector()
+        self.detector = DlibFaceDetector()
     
-    def apply_luxury_blur(self, image: np.ndarray, box: list) -> np.ndarray:
+    def apply_blur(self, image: np.ndarray, box: list) -> np.ndarray:
         x, y, w, h = box
         center = (x + w//2, y + h//2)
         radius = int(max(w, h) * 0.9)
         
-        # إنشاء قناع متدرج للتمويه
         mask = np.zeros(image.shape[:2], dtype=np.float32)
         cv2.circle(mask, center, radius, 1.0, -1)
         mask = cv2.GaussianBlur(mask, (99, 99), 30)
         
-        # تطبيق تمويه قوي متعدد المستويات
         blurred = cv2.GaussianBlur(image, (99, 99), 30)
         blurred = cv2.GaussianBlur(blurred, (99, 99), 30)
         
-        # دمج الصور
         mask = np.expand_dims(mask, -1)
         result = image * (1 - mask) + blurred * mask
         
         return result.astype(np.uint8)
-
+    
     def process_image(self, image: Image.Image) -> tuple:
         try:
             img = np.array(image)
@@ -264,7 +213,7 @@ class EnhancedBlurProcessor:
             
             if faces:
                 for face in faces:
-                    img = self.apply_luxury_blur(img, face['box'])
+                    img = self.apply_blur(img, face['box'])
             
             return Image.fromarray(img), len(faces)
             
@@ -282,7 +231,7 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    processor = EnhancedBlurProcessor()
+    processor = FaceBlurProcessor()
     
     st.markdown("""
     <div class="upload-zone">
