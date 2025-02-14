@@ -144,66 +144,112 @@ def set_page_config():
 
 class AdvancedFaceDetector:
     def __init__(self):
-        """تهيئة جميع نماذج كشف الوجوه"""
-        self.retina = RetinaFace.build_model()
-        self.mtcnn = MTCNN()
+        """تهيئة نماذج كشف الوجوه المتقدمة"""
+        # MediaPipe Face Mesh للكشف الدقيق
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=True,
             max_num_faces=20,
             refine_landmarks=True,
             min_detection_confidence=0.4
         )
-        # تهيئة InsightFace
-        self.insight_model = insightface.app.FaceAnalysis()
-        self.insight_model.prepare(ctx_id=0)
+        
+        # MediaPipe Face Detection للوجوه البعيدة
+        self.face_detection = mp.solutions.face_detection.FaceDetection(
+            model_selection=1,
+            min_detection_confidence=0.4
+        )
+        
+        # OpenCV's Deep Neural Network face detector
+        self.dnn_face_detector = cv2.dnn.readNetFromCaffe(
+            'deploy.prototxt',
+            'res10_300x300_ssd_iter_140000.caffemodel'
+        )
+        
+        # Haar Cascade للوجوه الصغيرة
+        self.cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        )
+    
+    def detect_faces_dnn(self, image: np.ndarray) -> List[dict]:
+        """كشف الوجوه باستخدام شبكة DNN"""
+        height, width = image.shape[:2]
+        blob = cv2.dnn.blobFromImage(
+            image, 1.0, (300, 300), 
+            [104, 117, 123], False, False
+        )
+        
+        self.dnn_face_detector.setInput(blob)
+        detections = self.dnn_face_detector.forward()
+        faces = []
+        
+        for i in range(detections.shape[2]):
+            confidence = detections[0, 0, i, 2]
+            if confidence > 0.7:
+                box = detections[0, 0, i, 3:7] * np.array([width, height, width, height])
+                x1, y1, x2, y2 = box.astype(int)
+                faces.append({
+                    'box': [x1, y1, x2-x1, y2-y1],
+                    'confidence': float(confidence),
+                    'source': 'dnn'
+                })
+        
+        return faces
+    
+    def detect_faces_mediapipe(self, image: np.ndarray) -> List[dict]:
+        """كشف الوجوه باستخدام MediaPipe"""
+        results = self.face_detection.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        faces = []
+        
+        if results.detections:
+            height, width = image.shape[:2]
+            for detection in results.detections:
+                bbox = detection.location_data.relative_bounding_box
+                x = int(bbox.xmin * width)
+                y = int(bbox.ymin * height)
+                w = int(bbox.width * width)
+                h = int(bbox.height * height)
+                
+                faces.append({
+                    'box': [x, y, w, h],
+                    'confidence': detection.score[0],
+                    'source': 'mediapipe'
+                })
+        
+        return faces
+    
+    def detect_faces_cascade(self, image: np.ndarray) -> List[dict]:
+        """كشف الوجوه باستخدام Haar Cascade"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        detections = self.cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(20, 20)
+        )
+        
+        return [
+            {
+                'box': list(map(int, box)),
+                'confidence': 0.9,
+                'source': 'cascade'
+            }
+            for box in detections
+        ]
     
     def detect_faces(self, image: np.ndarray) -> List[dict]:
-        """كشف الوجوه باستخدام عدة تقنيات متقدمة"""
-        faces = []
-        height, width = image.shape[:2]
+        """كشف الوجوه باستخدام جميع الطرق المتاحة"""
+        all_faces = []
         
+        # جمع النتائج من جميع الطرق
+        all_faces.extend(self.detect_faces_mediapipe(image))
+        all_faces.extend(self.detect_faces_cascade(image))
         try:
-            # 1. RetinaFace
-            retina_faces = RetinaFace.detect_faces(image)
-            if isinstance(retina_faces, dict):
-                for face in retina_faces.values():
-                    box = face['facial_area']
-                    faces.append({
-                        'box': box,
-                        'confidence': face['score'],
-                        'source': 'retinaface'
-                    })
+            all_faces.extend(self.detect_faces_dnn(image))
         except Exception as e:
-            logger.warning(f"خطأ في RetinaFace: {str(e)}")
+            logger.warning(f"خطأ في DNN detector: {str(e)}")
         
-        try:
-            # 2. MTCNN
-            mtcnn_faces = self.mtcnn.detect_faces(image)
-            for face in mtcnn_faces:
-                if face['confidence'] > 0.9:
-                    faces.append({
-                        'box': face['box'],
-                        'confidence': face['confidence'],
-                        'source': 'mtcnn'
-                    })
-        except Exception as e:
-            logger.warning(f"خطأ في MTCNN: {str(e)}")
-        
-        try:
-            # 3. InsightFace
-            insight_faces = self.insight_model.get(image)
-            for face in insight_faces:
-                box = face.bbox.astype(int)
-                faces.append({
-                    'box': [box[0], box[1], box[2]-box[0], box[3]-box[1]],
-                    'confidence': face.det_score,
-                    'source': 'insightface'
-                })
-        except Exception as e:
-            logger.warning(f"خطأ في InsightFace: {str(e)}")
-        
-        # إزالة التكرارات وتحسين النتائج
-        return self.merge_detections(faces)
+        # دمج وتنقية النتائج
+        return self.merge_detections(all_faces)
     
     def merge_detections(self, faces: List[dict]) -> List[dict]:
         """دمج وتنقية نتائج الكشف"""
@@ -220,9 +266,8 @@ class AdvancedFaceDetector:
             
             for existing_face in final_faces:
                 box2 = existing_face['box']
-                # حساب نسبة التداخل
                 iou = self.calculate_iou(box1, box2)
-                if iou > 0.5:  # إذا كان التداخل كبيراً
+                if iou > 0.5:
                     should_add = False
                     break
             
@@ -253,38 +298,39 @@ class AdvancedFaceBlurProcessor:
     def __init__(self):
         self.detector = AdvancedFaceDetector()
     
-    def apply_smart_blur(self, image: np.ndarray, box: List[int], confidence: float) -> np.ndarray:
-        """تطبيق تمويه ذكي مع تأثيرات متدرجة"""
+    def apply_advanced_blur(self, image: np.ndarray, box: List[int], confidence: float) -> np.ndarray:
+        """تطبيق تمويه متقدم مع تأثيرات متدرجة"""
         x, y, w, h = box
         center = (x + w//2, y + h//2)
-        radius = int(max(w, h) * 0.6)  # تقليل حجم منطقة التمويه قليلاً
+        radius = int(max(w, h) * 0.6)
         
-        # إنشاء قناع دائري متدرج
+        # إنشاء قناع متدرج للتمويه
         mask = np.zeros(image.shape[:2], dtype=np.float32)
         for r in range(radius):
-            cv2.circle(
-                mask,
-                center,
-                radius - r,
-                color=(1 - r/radius),
-                thickness=1
-            )
+            alpha = 1 - (r / radius)**2  # تدرج غير خطي
+            cv2.circle(mask, center, radius - r, alpha, 1)
         
-        # تطبيق التمويه بقوة متناسبة مع مستوى الثقة
-        blur_strength = int(99 * confidence) | 1  # يجب أن يكون رقماً فردياً
-        blurred = cv2.GaussianBlur(image, (blur_strength, blur_strength), 0)
+        # تطبيق عدة مستويات من التمويه
+        blur_levels = [
+            cv2.GaussianBlur(image, (k, k), 0)
+            for k in [21, 41, 81]
+        ]
         
-        # دمج الصور
-        mask = np.expand_dims(mask, -1)
-        result = image * (1 - mask) + blurred * mask
+        result = image.copy()
+        for i, blurred in enumerate(blur_levels):
+            weight = mask * (1 - i/len(blur_levels))
+            weight = np.expand_dims(weight, -1)
+            result = result * (1 - weight) + blurred * weight
         
         return result.astype(np.uint8)
     
     def process_image(self, image: Image.Image) -> Image.Image:
         """معالجة الصورة وتمويه الوجوه"""
         try:
-            # تحويل الصورة إلى مصفوفة NumPy
             img = np.array(image)
+            
+            # تحسين جودة الصورة
+            img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
             
             # كشف الوجوه
             faces = self.detector.detect_faces(img)
@@ -295,13 +341,13 @@ class AdvancedFaceBlurProcessor:
             
             # تطبيق التمويه على كل وجه
             for face in faces:
-                img = self.apply_smart_blur(
+                img = self.apply_advanced_blur(
                     img,
                     face['box'],
                     face['confidence']
                 )
             
-            logger.info(f"تم العثور على {len(faces)} وجه/وجوه")
+            logger.info(f"تم معالجة {len(faces)} وجه/وجوه")
             return Image.fromarray(img)
             
         except Exception as e:
@@ -381,185 +427,124 @@ def main():
     set_page_config()
     
     # تحميل الرسوم المتحركة
-    lottie_face = load_lottie_url("https://assets5.lottiefiles.com/packages/lf20_UJNc2t.json")
+    lottie_url = "https://assets5.lottiefiles.com/packages/lf20_UJNc2t.json"
+    lottie_json = load_lottie_url(lottie_url)
     
-    # القائمة الجانبية
-    with st.sidebar:
-        selected = option_menu(
-            "القائمة الرئيسية",
-            ["الرئيسية", "المعلومات", "الإعدادات"],
-            icons=['house', 'info-circle', 'gear'],
-            menu_icon="cast",
-            default_index=0,
-            styles={
-                "container": {"padding": "1rem"},
-                "icon": {"font-size": "1.2rem"},
-                "nav-link": {"font-size": "1rem", "text-align": "right"}
-            }
-        )
-        
-        if selected == "الإعدادات":
-            st.subheader("⚙️ إعدادات التمويه")
-            blur_amount = st.slider(
-                "قوة التمويه",
-                min_value=1,
-                max_value=199,
-                value=99,
-                step=2
-            )
-            detection_confidence = st.slider(
-                "دقة الكشف عن الوجوه",
-                min_value=0.1,
-                max_value=1.0,
-                value=0.4,
-                step=0.1
-            )
+    # تصميم الصفحة الرئيسية
+    st.markdown("""
+    <div class="title-container">
+        <h1>🎭 تمويه الوجوه الذكي</h1>
+        <p class="info-text">نظام متقدم للكشف عن الوجوه وتمويهها باستخدام الذكاء الاصطناعي</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    if selected == "الرئيسية":
-        # تصميم الصفحة الرئيسية
-        st.markdown("""
-        <div style='text-align: center; padding: 2rem;'>
-            <h1 style='color: #1E88E5;'>🎭 أداة تمويه الوجوه الذكية</h1>
-            <p style='font-size: 1.2rem; color: #424242;'>
-                نستخدم أحدث تقنيات الذكاء الاصطناعي للكشف عن الوجوه وتمويهها بشكل احترافي
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        col1, col2, col3 = st.columns([1,2,1])
-        with col2:
-            st_lottie(lottie_face, height=200, key="face_animation")
-        
-        processor = AdvancedFaceBlurProcessor()
-        
-        # التحقق من تثبيت Poppler
-        poppler_installed = check_poppler_installation()
-        
-        with st.container():
-            st.markdown("""
-            <div style='background: rgba(255, 255, 255, 0.9); padding: 2rem; border-radius: 15px; margin: 2rem 0;'>
-                <h3 style='text-align: center; color: #1E88E5;'>📁 رفع الملفات</h3>
-                <p style='text-align: center; color: #424242;'>يمكنك رفع صور بصيغة JPG, JPEG, PNG أو ملفات PDF</p>
-            </div>
-            """, unsafe_allow_html=True)
+    # عرض الرسوم المتحركة
+    if lottie_json:
+        st_lottie(lottie_json, height=200, key="face_animation")
+    
+    processor = AdvancedFaceBlurProcessor()
+    
+    # منطقة رفع الملفات
+    st.markdown("""
+    <div class="upload-container">
+        <h3>📁 رفع الملفات</h3>
+        <p class="info-text">يمكنك رفع صور بصيغة JPG, JPEG, PNG أو ملفات PDF</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    uploaded_file = st.file_uploader(
+        "اختر ملفاً",
+        type=["jpg", "jpeg", "png", "pdf"],
+        help="اسحب الملف هنا أو انقر لاختيار ملف"
+    )
+    
+    if uploaded_file:
+        try:
+            file_type = uploaded_file.type
             
-            uploaded_file = st.file_uploader(
-                "اختر ملفاً",
-                type=["jpg", "jpeg", "png", "pdf"],
-                help="اسحب الملف هنا أو انقر لاختيار ملف"
-            )
-        
-        if uploaded_file is not None:
-            try:
-                file_type = uploaded_file.type
+            with st.spinner("🔄 جاري معالجة الملف..."):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
                 
-                if "pdf" in file_type and not poppler_installed:
-                    show_poppler_installation_instructions()
-                    return
-                
-                with st.spinner("🔄 جاري معالجة الملف..."):
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
+                if "pdf" in file_type:
+                    status_text.text("📄 جاري معالجة ملف PDF...")
+                    images = convert_from_bytes(uploaded_file.read())
+                    processed_images = []
                     
-                    if "pdf" in file_type:
-                        status_text.text("📄 جاري معالجة ملف PDF...")
-                        processed_images = process_pdf(uploaded_file, processor)
+                    for idx, img in enumerate(images):
+                        progress = (idx + 1) / len(images)
+                        progress_bar.progress(progress)
+                        status_text.text(f"معالجة الصفحة {idx + 1} من {len(images)}")
                         
-                        st.success(f"✅ تم معالجة {len(processed_images)} صفحة/صفحات بنجاح")
-                        
-                        for idx, img in enumerate(processed_images, 1):
-                            progress_bar.progress(idx / len(processed_images))
-                            status_text.text(f"معالجة الصفحة {idx} من {len(processed_images)}")
-                            
-                            st.markdown(f"""
-                            <div style='background: rgba(255, 255, 255, 0.9); padding: 1rem; border-radius: 10px; margin: 1rem 0;'>
-                                <h3 style='color: #1E88E5;'>📄 صفحة {idx}</h3>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.image(img, caption=f"صفحة {idx} بعد المعالجة", use_column_width=True)
-                            with col2:
-                                buf = io.BytesIO()
-                                img.save(buf, format="PNG")
-                                st.download_button(
-                                    f"⬇️ تحميل الصفحة {idx}",
-                                    buf.getvalue(),
-                                    f"blurred_page_{idx}.png",
-                                    "image/png",
-                                    use_container_width=True
-                                )
-                    else:
-                        image = Image.open(uploaded_file)
-                        
-                        # عرض معلومات الصورة
-                        st.markdown("""
-                        <div style='background: rgba(255, 255, 255, 0.9); padding: 1rem; border-radius: 10px; margin: 1rem 0;'>
-                            <h3 style='color: #1E88E5;'>📊 معلومات الصورة</h3>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.info(f"العرض: {image.width} بكسل")
-                        with col2:
-                            st.info(f"الارتفاع: {image.height} بكسل")
-                        with col3:
-                            st.info(f"النوع: {image.mode}")
+                        processed = processor.process_image(img)
+                        processed_images.append(processed)
+                    
+                    st.markdown("""
+                    <div class="results-container">
+                        <h3>📄 النتائج</h3>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    for idx, img in enumerate(processed_images, 1):
+                        st.markdown(f"#### صفحة {idx}")
                         
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.markdown("#### الصورة الأصلية")
-                            st.image(image, caption="الصورة الأصلية", use_column_width=True)
-                        
+                            st.image(img, caption=f"الصفحة {idx} بعد المعالجة", use_column_width=True)
                         with col2:
-                            st.markdown("#### الصورة بعد المعالجة")
-                            status_text.text("🔄 جاري تمويه الوجوه...")
-                            processed_image = processor.process_image(image)
-                            st.image(processed_image, caption="الصورة بعد التمويه", use_column_width=True)
-                            
                             buf = io.BytesIO()
-                            processed_image.save(buf, format="PNG")
+                            img.save(buf, format="PNG")
                             st.download_button(
-                                "⬇️ تحميل الصورة المعدلة",
+                                f"⬇️ تحميل الصفحة {idx}",
                                 buf.getvalue(),
-                                "blurred_image.png",
-                                "image/png",
-                                use_container_width=True
+                                f"blurred_page_{idx}.png",
+                                "image/png"
                             )
+                else:
+                    image = Image.open(uploaded_file)
+                    
+                    st.markdown("""
+                    <div class="results-container">
+                        <h3>📊 معلومات الصورة</h3>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.info(f"العرض: {image.width} بكسل")
+                    with col2:
+                        st.info(f"الارتفاع: {image.height} بكسل")
+                    with col3:
+                        st.info(f"النوع: {image.mode}")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("#### الصورة الأصلية")
+                        st.image(image, caption="الصورة الأصلية", use_column_width=True)
+                    
+                    with col2:
+                        st.markdown("#### الصورة بعد المعالجة")
+                        status_text.text("🔄 جاري تمويه الوجوه...")
+                        processed_image = processor.process_image(image)
+                        st.image(processed_image, caption="الصورة بعد التمويه", use_column_width=True)
+                        
+                        buf = io.BytesIO()
+                        processed_image.save(buf, format="PNG")
+                        st.download_button(
+                            "⬇️ تحميل الصورة المعدلة",
+                            buf.getvalue(),
+                            "blurred_image.png",
+                            "image/png"
+                        )
                 
                 progress_bar.progress(100)
                 status_text.empty()
                 st.balloons()
-                
                 st.success("✨ تمت المعالجة بنجاح!")
-            
-            except Exception as e:
-                st.error(f"❌ حدث خطأ أثناء معالجة الملف: {str(e)}")
-                logger.error(f"خطأ: {str(e)}")
-    
-    elif selected == "المعلومات":
-        st.title("ℹ️ معلومات عن التطبيق")
-        st.markdown("""
-        <div style='background: rgba(255, 255, 255, 0.9); padding: 2rem; border-radius: 15px;'>
-            <h3 style='color: #1E88E5;'>🔍 المميزات</h3>
-            <ul>
-                <li>كشف الوجوه باستخدام تقنيات الذكاء الاصطناعي المتقدمة</li>
-                <li>تمويه ذكي مع تأثيرات متدرجة</li>
-                <li>دعم الصور عالية الدقة</li>
-                <li>معالجة ملفات PDF متعددة الصفحات</li>
-                <li>واجهة مستخدم سهلة وجذابة</li>
-            </ul>
-            
-            <h3 style='color: #1E88E5;'>🛡️ الخصوصية والأمان</h3>
-            <ul>
-                <li>جميع المعالجة تتم محلياً على جهازك</li>
-                <li>لا يتم حفظ أو مشاركة أي بيانات</li>
-                <li>يمكنك حذف الملفات المعالجة فور تحميلها</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        
+        except Exception as e:
+            st.error(f"❌ حدث خطأ أثناء المعالجة: {str(e)}")
+            logger.error(f"خطأ: {str(e)}")
 
 if __name__ == "__main__":
     main()
