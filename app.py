@@ -486,14 +486,14 @@ TRANSLATIONS = {
     }
 }
 
-def get_text(key, lang, *args):
+def get_text(key, lang='en'):
     """
-    الحصول على النص المترجم
+    الحصول على النص المترجم مع معالجة الأخطاء
     """
-    text = TRANSLATIONS[lang][key]
-    if args:
-        text = text.format(*args)
-    return text
+    try:
+        return TRANSLATIONS.get(lang, TRANSLATIONS['en']).get(key, TRANSLATIONS['en'][key])
+    except:
+        return TRANSLATIONS['en'].get(key, 'Error: Text not found')
 
 def remove_overlapping_faces(faces, overlap_thresh=0.3):
     """
@@ -557,15 +557,22 @@ def main():
             initial_sidebar_state="collapsed"
         )
         
-        # اختيار اللغة
-        col1, col2, col3 = st.columns([3, 1, 3])
-        with col2:
-            lang = st.selectbox(
-                "🌐",
-                ['ar', 'en'],
-                format_func=lambda x: 'العربية' if x == 'ar' else 'English',
-                label_visibility="collapsed"
-            )
+        # تعيين قيمة افتراضية للغة
+        lang = 'en'
+        
+        try:
+            # اختيار اللغة
+            col1, col2, col3 = st.columns([3, 1, 3])
+            with col2:
+                lang = st.selectbox(
+                    "🌐",
+                    ['ar', 'en'],
+                    format_func=lambda x: 'العربية' if x == 'ar' else 'English',
+                    label_visibility="collapsed"
+                )
+        except:
+            # في حالة حدوث خطأ، استخدام اللغة الافتراضية
+            pass
         
         # العنوان الرئيسي
         st.markdown(f'<div class="main-title">{get_text("title", lang)}</div>', unsafe_allow_html=True)
@@ -612,8 +619,9 @@ def main():
                     st.error(get_text('processing_error', lang))
     
     except Exception as e:
+        # استخدام اللغة الإنجليزية في حالة الخطأ
         logger.error(f"خطأ في التطبيق: {str(e)}")
-        st.error(get_text('app_error', lang))
+        st.error(get_text('app_error', 'en'))
 
 if __name__ == "__main__":
     main()
