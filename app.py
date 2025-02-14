@@ -10,22 +10,79 @@ import logging
 import os
 import sys
 from pathlib import Path
+import math
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class FaceBlurProcessor:
-    def __init__(self, blur_kernel: Tuple[int, int] = (99, 99), blur_sigma: int = 30):
-        self.blur_kernel = blur_kernel
-        self.blur_sigma = blur_sigma
-        self.face_detection = mp.solutions.face_detection.FaceDetection(
-            model_selection=1, min_detection_confidence=0.5
+    def __init__(self):
+        """تهيئة معالج تمويه الوجوه مع نماذج متقدمة"""
+        self.face_mesh = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=True,
+            max_num_faces=10,
+            refine_landmarks=True,
+            min_detection_confidence=0.5
         )
+        self.face_detection = mp.solutions.face_detection.FaceDetection(
+            model_selection=1,
+            min_detection_confidence=0.7
+        )
+    
+    def create_circular_mask(self, height: int, width: int, center: Tuple[int, int], radius: int) -> np.ndarray:
+        """إنشاء قناع دائري للتمويه"""
+        Y, X = np.ogrid[:height, :width]
+        dist_from_center = np.sqrt((X - center[0])**2 + (Y - center[1])**2)
+        mask = dist_from_center <= radius
+        return mask.astype(np.uint8)
+    
+    def apply_circular_blur(self, image: np.ndarray, center: Tuple[int, int], radius: int, blur_amount: int = 99) -> np.ndarray:
+        """تطبيق تمويه دائري على منطقة محددة"""
+        mask = self.create_circular_mask(image.shape[0], image.shape[1], center, radius)
+        
+        # إنشاء نسخة مموهة من الصورة كاملة
+        blurred = cv2.GaussianBlur(image, (blur_amount, blur_amount), 30)
+        
+        # دمج الصورة الأصلية مع المنطقة المموهة باستخدام القناع
+        result = image.copy()
+        result[mask == 1] = blurred[mask == 1]
+        
+        return result
+    
+    def get_face_landmarks(self, image: np.ndarray) -> List[dict]:
+        """استخراج معالم الوجه باستخدام FaceMesh"""
+        results = self.face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        if not results.multi_face_landmarks:
+            return []
+        
+        landmarks_list = []
+        height, width = image.shape[:2]
+        
+        for face_landmarks in results.multi_face_landmarks:
+            # حساب مركز ومحيط الوجه
+            x_coords = [landmark.x * width for landmark in face_landmarks.landmark]
+            y_coords = [landmark.y * height for landmark in face_landmarks.landmark]
+            
+            center_x = int(sum(x_coords) / len(x_coords))
+            center_y = int(sum(y_coords) / len(y_coords))
+            
+            # حساب نصف قطر الدائرة المحيطة بالوجه
+            radius = int(max(
+                max(x_coords) - min(x_coords),
+                max(y_coords) - min(y_coords)
+            ) * 0.7)  # 0.7 لتغطية الوجه بشكل أفضل
+            
+            landmarks_list.append({
+                'center': (center_x, center_y),
+                'radius': radius
+            })
+        
+        return landmarks_list
     
     def blur_faces(self, image: Image.Image) -> Image.Image:
         """
-        تطبيق التمويه على الوجوه في الصورة
+        تطبيق التمويه الدائري على الوجوه في الصورة
         
         Args:
             image: صورة PIL
@@ -33,28 +90,46 @@ class FaceBlurProcessor:
             صورة PIL بعد تمويه الوجوه
         """
         try:
+            # تحويل الصورة إلى مصفوفة NumPy
             img = np.array(image)
-            rgb_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            results = self.face_detection.process(cv2.cvtColor(rgb_img, cv2.COLOR_BGR2RGB))
             
-            if not results.detections:
+            # كشف معالم الوجوه
+            face_landmarks = self.get_face_landmarks(img)
+            
+            if not face_landmarks:
+                # استخدام نموذج الكشف عن الوجوه كاحتياطي
+                results = self.face_detection.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                if results.detections:
+                    height, width = img.shape[:2]
+                    for detection in results.detections:
+                        bbox = detection.location_data.relative_bounding_box
+                        x = int(bbox.xmin * width)
+                        y = int(bbox.ymin * height)
+                        w = int(bbox.width * width)
+                        h = int(bbox.height * height)
+                        
+                        center_x = x + w // 2
+                        center_y = y + h // 2
+                        radius = int(max(w, h) * 0.7)
+                        
+                        face_landmarks.append({
+                            'center': (center_x, center_y),
+                            'radius': radius
+                        })
+            
+            if not face_landmarks:
                 logger.info("لم يتم العثور على وجوه في الصورة")
                 return image
             
-            height, width = img.shape[:2]
+            # تطبيق التمويه الدائري على كل وجه
+            for face in face_landmarks:
+                img = self.apply_circular_blur(
+                    img,
+                    face['center'],
+                    face['radius']
+                )
             
-            for detection in results.detections:
-                bbox = detection.location_data.relative_bounding_box
-                x = max(0, int(bbox.xmin * width))
-                y = max(0, int(bbox.ymin * height))
-                w = min(int(bbox.width * width), width - x)
-                h = min(int(bbox.height * height), height - y)
-                
-                face = img[y:y+h, x:x+w]
-                blurred_face = cv2.GaussianBlur(face, self.blur_kernel, self.blur_sigma)
-                img[y:y+h, x:x+w] = blurred_face
-            
-            logger.info(f"تم العثور على {len(results.detections)} وجه/وجوه")
+            logger.info(f"تم العثور على {len(face_landmarks)} وجه/وجوه")
             return Image.fromarray(img)
         
         except Exception as e:
