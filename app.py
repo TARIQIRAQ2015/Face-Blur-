@@ -9,6 +9,8 @@ import sys
 import os
 import time
 import gc
+import face_recognition
+from PIL import ImageDraw
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -164,6 +166,53 @@ def detect_faces_advanced(image):
     except Exception as e:
         logger.error(f"خطأ في كشف الوجوه: {str(e)}")
         return [], None
+
+def blur_faces_advanced(image):
+    """
+    تمويه الوجوه بشكل دقيق يتبع شكل الوجه
+    """
+    try:
+        # تحويل الصورة إلى مصفوفة numpy
+        img_array = np.array(image)
+        
+        # كشف مواقع الوجوه
+        face_locations = face_recognition.face_locations(img_array, model="cnn")
+        # كشف معالم الوجه
+        face_landmarks_list = face_recognition.face_landmarks(img_array, face_locations)
+        
+        if not face_locations:
+            st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
+            return image
+            
+        # إنشاء نسخة للتعديل
+        result_image = Image.fromarray(img_array)
+        draw = ImageDraw.Draw(result_image)
+        
+        for face_landmarks in face_landmarks_list:
+            # إنشاء قناع للوجه
+            mask = Image.new('L', (img_array.shape[1], img_array.shape[0]), 0)
+            mask_draw = ImageDraw.Draw(mask)
+            
+            # رسم جميع معالم الوجه على القناع
+            for facial_feature in face_landmarks.values():
+                mask_draw.polygon(facial_feature, fill=255)
+            
+            # توسيع منطقة القناع قليلاً
+            mask = mask.filter(ImageFilter.GaussianBlur(5))
+            
+            # إنشاء نسخة مموهة من الصورة كاملة
+            blurred = Image.fromarray(cv2.GaussianBlur(img_array, (99, 99), 30))
+            
+            # دمج الصورة الأصلية مع المموهة باستخدام القناع
+            result_image.paste(blurred, mask=mask)
+        
+        st.success(f"✅ تم العثور على {len(face_landmarks_list)} وجه/وجوه")
+        return result_image
+        
+    except Exception as e:
+        logger.error(f"خطأ في معالجة الصورة: {str(e)}")
+        st.error(f"حدث خطأ أثناء معالجة الصورة: {str(e)}")
+        return image
 
 def blur_faces_simple(image):
     """
@@ -567,6 +616,23 @@ def remove_overlapping_faces(faces, overlap_thresh=0.3):
     
     return faces[keep].tolist()
 
+def process_image(image):
+    """
+    معالجة الصورة مع محاولات متعددة للكشف
+    """
+    try:
+        # محاولة الكشف باستخدام النموذج المتقدم
+        result = blur_faces_advanced(image)
+        
+        # إذا لم يتم العثور على وجوه، نجرب النموذج البسيط
+        if result == image:
+            result = blur_faces_simple(image)
+            
+        return result
+    except Exception as e:
+        logger.error(f"خطأ في معالجة الصورة: {str(e)}")
+        return image
+
 def main():
     try:
         load_css()
@@ -609,34 +675,33 @@ def main():
                     
                     with st.spinner(get_text('processing', lang)):
                         process_pdf(uploaded_file)
-        else:
-            image = Image.open(uploaded_file)
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown(f'<p class="{text_class}">{get_text("original_image", lang)}</p>', unsafe_allow_html=True)
-                        st.image(image, use_container_width=True)
-                    
-                    with st.spinner(get_text('processing', lang)):
-                        processed_image = blur_faces_simple(image)
-                    
-                    with col2:
-                        st.markdown(f'<p class="{text_class}">{get_text("processed_image", lang)}</p>', unsafe_allow_html=True)
-                        st.image(processed_image, use_container_width=True)
-                    
-                    # زر التحميل
-            buf = io.BytesIO()
-            processed_image.save(buf, format="PNG")
-                    st.download_button(
-                        get_text('download_button', lang),
-                        buf.getvalue(),
-                        "blurred_image.png",
-                        "image/png"
-                    )
-            
             except Exception as e:
                 logger.error(f"Error processing file: {str(e)}")
                 st.error(get_text('processing_error', lang))
+        else:
+            image = Image.open(uploaded_file)
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown(f'<p class="{text_class}">{get_text("original_image", lang)}</p>', unsafe_allow_html=True)
+                st.image(image, use_container_width=True)
+            
+            with st.spinner(get_text('processing', lang)):
+                processed_image = process_image(image)
+            
+            with col2:
+                st.markdown(f'<p class="{text_class}">{get_text("processed_image", lang)}</p>', unsafe_allow_html=True)
+                st.image(processed_image, use_container_width=True)
+            
+            # زر التحميل
+            buf = io.BytesIO()
+            processed_image.save(buf, format="PNG")
+            st.download_button(
+                get_text('download_button', lang),
+                buf.getvalue(),
+                "blurred_image.png",
+                "image/png"
+            )
         
         # الملاحظات
         st.markdown("---")
