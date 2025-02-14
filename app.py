@@ -174,21 +174,24 @@ class SimpleFaceDetector:
         self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
 
     def filter_detection(self, x, y, w, h, image_shape):
-        """فلترة النتائج لتجنب النصوص والأشكال الصغيرة"""
+        """فلترة النتائج لتجنب النصوص والأشكال غير المطلوبة"""
         area = w * h
         image_area = image_shape[0] * image_shape[1]
         aspect_ratio = w / h
         
-        # تجاهل المناطق الصغيرة جداً
-        if area < (image_area * 0.01):
+        # تعديل نسبة المساحة المقبولة
+        min_area_ratio = 0.005  # تقليل الحد الأدنى للمساحة للوجوه الصغيرة
+        max_area_ratio = 0.3    # زيادة الحد الأقصى للوجوه الكبيرة
+        
+        if area < (image_area * min_area_ratio) or area > (image_area * max_area_ratio):
             return False
             
-        # تجاهل المناطق ذات النسب غير المنطقية للوجوه
-        if aspect_ratio < 0.5 or aspect_ratio > 2.0:
+        # تحسين نسب الوجه
+        if aspect_ratio < 0.7 or aspect_ratio > 1.4:  # نسب أكثر دقة للوجوه
             return False
             
-        # تجاهل المناطق الصغيرة جداً بالأبعاد
-        if w < 30 or h < 30:
+        # تعديل الحد الأدنى للأبعاد
+        if w < 20 or h < 20:  # تقليل الحد الأدنى للوجوه الصغيرة
             return False
             
         return True
@@ -197,41 +200,36 @@ class SimpleFaceDetector:
         faces = []
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
-        # كشف الوجوه الأمامية
-        front_faces = self.face_cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.1,
-            minNeighbors=6,  # زيادة للتقليل من الكشف الخاطئ
-            minSize=(30, 30),
-            flags=cv2.CASCADE_SCALE_IMAGE
-        )
-        
-        # كشف الوجوه الجانبية
-        profile_faces = self.profile_cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.1,
-            minNeighbors=6,
-            minSize=(30, 30),
-            flags=cv2.CASCADE_SCALE_IMAGE
-        )
-        
-        # دمج النتائج
-        all_faces = np.vstack((front_faces, profile_faces)) if len(profile_faces) > 0 else front_faces
-        
-        for (x, y, w, h) in all_faces:
-            if self.filter_detection(x, y, w, h, image.shape):
-                # توسيع منطقة الوجه
-                padding_x = int(w * 0.1)
-                padding_y = int(h * 0.1)
-                x = max(0, x - padding_x)
-                y = max(0, y - padding_y)
-                w = min(w + 2*padding_x, image.shape[1] - x)
-                h = min(h + 2*padding_y, image.shape[0] - y)
-                
-                faces.append({
-                    'box': [x, y, w, h],
-                    'confidence': 0.9
-                })
+        # تحسين معايير الكشف
+        scales = [1.05, 1.1, 1.15]  # استخدام عدة مقاييس للكشف
+        for scale in scales:
+            # كشف الوجوه الأمامية
+            front_faces = self.face_cascade.detectMultiScale(
+                gray,
+                scaleFactor=scale,
+                minNeighbors=4,  # تقليل للكشف عن الوجوه الصغيرة
+                minSize=(20, 20),  # تقليل الحد الأدنى
+                maxSize=(300, 300),  # تحديد الحد الأقصى
+                flags=cv2.CASCADE_SCALE_IMAGE
+            )
+            
+            # إضافة الوجوه المكتشفة
+            for (x, y, w, h) in front_faces:
+                if self.filter_detection(x, y, w, h, image.shape):
+                    # تعديل حجم منطقة التمويه
+                    padding = 0.08 if w < 50 else 0.15  # padding أقل للوجوه الصغيرة
+                    padding_x = int(w * padding)
+                    padding_y = int(h * padding)
+                    
+                    x = max(0, x - padding_x)
+                    y = max(0, y - padding_y)
+                    w = min(w + 2*padding_x, image.shape[1] - x)
+                    h = min(h + 2*padding_y, image.shape[0] - y)
+                    
+                    faces.append({
+                        'box': [x, y, w, h],
+                        'confidence': 0.9
+                    })
         
         return faces
 
@@ -240,29 +238,29 @@ class FaceBlurProcessor:
         self.detector = SimpleFaceDetector()
     
     def create_circular_mask(self, image_shape, center, radius):
-        """إنشاء قناع دائري متدرج"""
         mask = np.zeros(image_shape[:2], dtype=np.float32)
         y, x = np.ogrid[:image_shape[0], :image_shape[1]]
         dist_from_center = np.sqrt((x - center[0])**2 + (y - center[1])**2)
         
-        # إنشاء تدرج ناعم
+        # تحسين التدرج للتمويه
         mask = np.clip(1 - dist_from_center/radius, 0, 1)
-        mask = cv2.GaussianBlur(mask, (31, 31), 0)
+        mask = cv2.GaussianBlur(mask, (21, 21), 0)  # تنعيم أقل للحواف
         return mask
     
     def apply_circular_blur(self, image: np.ndarray, box: list) -> np.ndarray:
         x, y, w, h = box
         center = (x + w//2, y + h//2)
-        radius = int(max(w, h) * 0.6)  # تقليل نصف القطر قليلاً
         
-        # إنشاء نسخة مموهة من الصورة كاملة
-        blurred = cv2.GaussianBlur(image, (99, 99), 30)
+        # تعديل نصف القطر حسب حجم الوجه
+        radius = int(max(w, h) * (0.5 if w < 50 else 0.65))
         
-        # إنشاء قناع دائري متدرج
+        # تعديل قوة التمويه حسب حجم الوجه
+        blur_size = 51 if w < 50 else 99
+        blurred = cv2.GaussianBlur(image, (blur_size, blur_size), 30)
+        
         mask = self.create_circular_mask(image.shape, center, radius)
         mask = np.expand_dims(mask, axis=2)
         
-        # دمج الصورة الأصلية مع المموهة
         result = image.copy()
         result = image * (1 - mask) + blurred * mask
         
