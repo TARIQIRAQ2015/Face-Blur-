@@ -179,9 +179,6 @@ def blur_faces_advanced(image):
         # تحويل الصورة إلى مصفوفة numpy
         img_array = np.array(image)
         
-        # تحويل من RGB إلى BGR لـ MediaPipe
-        image_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-        
         # كشف الوجوه باستخدام MediaPipe
         with mp_face_detection.FaceDetection(
             model_selection=1,  # نموذج كامل للدقة العالية
@@ -190,7 +187,7 @@ def blur_faces_advanced(image):
             results = face_detection.process(img_array)
             
             if not results.detections:
-                st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
+                st.warning(get_text('no_faces', lang))
                 return image
             
             # إنشاء قناع للوجوه
@@ -209,18 +206,25 @@ def blur_faces_advanced(image):
                 h = int(bbox.height * height)
                 
                 # توسيع منطقة الوجه قليلاً
-                padding_x = int(w * 0.1)
-                padding_y = int(h * 0.1)
+                padding_x = int(w * 0.2)
+                padding_y = int(h * 0.2)
                 x1 = max(0, x - padding_x)
                 y1 = max(0, y - padding_y)
                 x2 = min(width, x + w + padding_x)
                 y2 = min(height, y + h + padding_y)
                 
-                # رسم منطقة الوجه على القناع
-                mask_draw.ellipse([x1, y1, x2, y2], fill=255)
+                # رسم دائرة على القناع
+                center_x = (x1 + x2) // 2
+                center_y = (y1 + y2) // 2
+                radius = max(x2 - x1, y2 - y1) // 2
+                mask_draw.ellipse(
+                    [center_x - radius, center_y - radius, 
+                     center_x + radius, center_y + radius],
+                    fill=255
+                )
             
             # تنعيم حواف القناع
-            mask = mask.filter(ImageFilter.GaussianBlur(radius=10))
+            mask = mask.filter(ImageFilter.GaussianBlur(radius=15))
             mask = np.array(mask)
             
             # إنشاء نسخة مموهة من الصورة
@@ -231,12 +235,12 @@ def blur_faces_advanced(image):
             result = img_array * (1 - mask) + blurred * mask
             
             result_image = Image.fromarray(result.astype('uint8'))
-            st.success(f"✅ تم العثور على {len(results.detections)} وجه/وجوه")
+            st.success(get_text('faces_found', lang, len(results.detections)))
             return result_image
             
     except Exception as e:
         logger.error(f"خطأ في معالجة الصورة: {str(e)}")
-        st.error(f"حدث خطأ أثناء معالجة الصورة: {str(e)}")
+        st.error(get_text('processing_error', lang))
         return image
 
 def blur_faces_simple(image):
@@ -706,33 +710,34 @@ def main():
                     
                     with st.spinner(get_text('processing', lang)):
                         process_pdf(uploaded_file)
+                else:
+                    image = Image.open(uploaded_file)
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown(f'<p class="{text_class}">{get_text("original_image", lang)}</p>', unsafe_allow_html=True)
+                        st.image(image, use_container_width=True)
+                    
+                    with st.spinner(get_text('processing', lang)):
+                        processed_image = blur_faces_advanced(image)
+                    
+                    with col2:
+                        st.markdown(f'<p class="{text_class}">{get_text("processed_image", lang)}</p>', unsafe_allow_html=True)
+                        st.image(processed_image, use_container_width=True)
+                    
+                    # زر التحميل
+                    buf = io.BytesIO()
+                    processed_image.save(buf, format="PNG")
+                    st.download_button(
+                        get_text('download_button', lang),
+                        buf.getvalue(),
+                        "blurred_image.png",
+                        "image/png"
+                    )
+                    
             except Exception as e:
                 logger.error(f"Error processing file: {str(e)}")
                 st.error(get_text('processing_error', lang))
-        else:
-            image = Image.open(uploaded_file)
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown(f'<p class="{text_class}">{get_text("original_image", lang)}</p>', unsafe_allow_html=True)
-                st.image(image, use_container_width=True)
-            
-            with st.spinner(get_text('processing', lang)):
-                processed_image = process_image(image)
-            
-            with col2:
-                st.markdown(f'<p class="{text_class}">{get_text("processed_image", lang)}</p>', unsafe_allow_html=True)
-                st.image(processed_image, use_container_width=True)
-            
-            # زر التحميل
-            buf = io.BytesIO()
-            processed_image.save(buf, format="PNG")
-            st.download_button(
-                get_text('download_button', lang),
-                buf.getvalue(),
-                "blurred_image.png",
-                "image/png"
-            )
         
         # الملاحظات
         st.markdown("---")
