@@ -13,6 +13,12 @@ import math
 import requests
 from pathlib import Path
 import time
+from deepface import DeepFace
+import face_recognition
+from retinaface import RetinaFace
+from mtcnn import MTCNN
+import insightface
+import torch
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -28,115 +34,274 @@ def load_lottie_url(url: str):
 # تكوين الصفحة
 def set_page_config():
     st.set_page_config(
-        page_title="أداة تمويه الوجوه الذكية",
+        page_title="تمويه الوجوه الذكي",
         page_icon="🎭",
-        layout="wide",
-        initial_sidebar_state="expanded"
+        layout="wide"
     )
     
-    # إضافة CSS مخصص
+    # تصميم CSS المحسن
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
+    
+    :root {
+        --primary-color: #2962FF;
+        --secondary-color: #0039CB;
+        --background-color: #F5F7FA;
+        --text-color: #1A237E;
+        --card-background: rgba(255, 255, 255, 0.95);
+    }
     
     * {
         font-family: 'Tajawal', sans-serif;
     }
     
     .stApp {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        background: linear-gradient(120deg, #E3F2FD 0%, #BBDEFB 100%);
     }
     
     .main {
-        background: rgba(255, 255, 255, 0.95);
-        padding: 3rem;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2rem;
+    }
+    
+    .title-container {
+        text-align: center;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        background: var(--card-background);
         border-radius: 20px;
-        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        box-shadow: 0 8px 32px rgba(31, 38, 135, 0.1);
+    }
+    
+    .title-container h1 {
+        color: var(--primary-color);
+        font-size: 2.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    .upload-container {
+        background: var(--card-background);
+        padding: 2rem;
+        border-radius: 20px;
+        box-shadow: 0 8px 32px rgba(31, 38, 135, 0.1);
+        margin-bottom: 2rem;
     }
     
     .stButton>button {
-        background: linear-gradient(45deg, #2196F3, #00BCD4);
+        background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
         color: white;
-        border: none;
-        padding: 0.5rem 2rem;
+        padding: 0.8rem 2rem;
         border-radius: 10px;
+        border: none;
         font-weight: bold;
-        transition: all 0.3s ease;
+        width: 100%;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
     
     .stButton>button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        box-shadow: 0 5px 15px rgba(41, 98, 255, 0.3);
+    }
+    
+    .results-container {
+        background: var(--card-background);
+        padding: 2rem;
+        border-radius: 20px;
+        box-shadow: 0 8px 32px rgba(31, 38, 135, 0.1);
+        margin-top: 2rem;
+    }
+    
+    .info-text {
+        color: var(--text-color);
+        font-size: 1.1rem;
+        line-height: 1.6;
+    }
+    
+    .progress-bar {
+        height: 10px;
+        border-radius: 5px;
+        background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    }
+    
+    .image-preview {
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .animate-fade-in {
+        animation: fadeIn 0.5s ease forwards;
     }
     </style>
     """, unsafe_allow_html=True)
 
-class AdvancedFaceBlurProcessor:
+class AdvancedFaceDetector:
     def __init__(self):
-        """تهيئة معالج تمويه الوجوه المتقدم"""
+        """تهيئة جميع نماذج كشف الوجوه"""
+        self.retina = RetinaFace.build_model()
+        self.mtcnn = MTCNN()
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=True,
             max_num_faces=20,
             refine_landmarks=True,
             min_detection_confidence=0.4
         )
-        
-        self.face_detection = mp.solutions.face_detection.FaceDetection(
-            model_selection=1,
-            min_detection_confidence=0.4
-        )
-        
-        self.face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        )
+        # تهيئة InsightFace
+        self.insight_model = insightface.app.FaceAnalysis()
+        self.insight_model.prepare(ctx_id=0)
     
-    def apply_smart_blur(self, image: np.ndarray, center: Tuple[int, int], radius: int) -> np.ndarray:
-        """تطبيق تمويه ذكي مع تأثيرات متقدمة"""
-        mask = np.zeros(image.shape[:2], dtype=np.uint8)
-        cv2.circle(mask, center, radius, 255, -1)
+    def detect_faces(self, image: np.ndarray) -> List[dict]:
+        """كشف الوجوه باستخدام عدة تقنيات متقدمة"""
+        faces = []
+        height, width = image.shape[:2]
         
-        # إنشاء تمويه متدرج
-        blurred = cv2.GaussianBlur(image, (99, 99), 30)
+        try:
+            # 1. RetinaFace
+            retina_faces = RetinaFace.detect_faces(image)
+            if isinstance(retina_faces, dict):
+                for face in retina_faces.values():
+                    box = face['facial_area']
+                    faces.append({
+                        'box': box,
+                        'confidence': face['score'],
+                        'source': 'retinaface'
+                    })
+        except Exception as e:
+            logger.warning(f"خطأ في RetinaFace: {str(e)}")
         
-        # تطبيق تأثير التدرج
-        mask_blur = cv2.GaussianBlur(mask, (99, 99), 30)
-        mask_blur = mask_blur.astype(float) / 255
+        try:
+            # 2. MTCNN
+            mtcnn_faces = self.mtcnn.detect_faces(image)
+            for face in mtcnn_faces:
+                if face['confidence'] > 0.9:
+                    faces.append({
+                        'box': face['box'],
+                        'confidence': face['confidence'],
+                        'source': 'mtcnn'
+                    })
+        except Exception as e:
+            logger.warning(f"خطأ في MTCNN: {str(e)}")
+        
+        try:
+            # 3. InsightFace
+            insight_faces = self.insight_model.get(image)
+            for face in insight_faces:
+                box = face.bbox.astype(int)
+                faces.append({
+                    'box': [box[0], box[1], box[2]-box[0], box[3]-box[1]],
+                    'confidence': face.det_score,
+                    'source': 'insightface'
+                })
+        except Exception as e:
+            logger.warning(f"خطأ في InsightFace: {str(e)}")
+        
+        # إزالة التكرارات وتحسين النتائج
+        return self.merge_detections(faces)
+    
+    def merge_detections(self, faces: List[dict]) -> List[dict]:
+        """دمج وتنقية نتائج الكشف"""
+        if not faces:
+            return []
+        
+        # ترتيب النتائج حسب مستوى الثقة
+        faces = sorted(faces, key=lambda x: x['confidence'], reverse=True)
+        final_faces = []
+        
+        for face in faces:
+            should_add = True
+            box1 = face['box']
+            
+            for existing_face in final_faces:
+                box2 = existing_face['box']
+                # حساب نسبة التداخل
+                iou = self.calculate_iou(box1, box2)
+                if iou > 0.5:  # إذا كان التداخل كبيراً
+                    should_add = False
+                    break
+            
+            if should_add:
+                final_faces.append(face)
+        
+        return final_faces
+    
+    @staticmethod
+    def calculate_iou(box1, box2):
+        """حساب نسبة التداخل بين مربعين"""
+        x1, y1, w1, h1 = box1
+        x2, y2, w2, h2 = box2
+        
+        xi1 = max(x1, x2)
+        yi1 = max(y1, y2)
+        xi2 = min(x1 + w1, x2 + w2)
+        yi2 = min(y1 + h1, y2 + h2)
+        
+        inter_area = max(0, xi2 - xi1) * max(0, yi2 - yi1)
+        box1_area = w1 * h1
+        box2_area = w2 * h2
+        union_area = box1_area + box2_area - inter_area
+        
+        return inter_area / union_area if union_area > 0 else 0
+
+class AdvancedFaceBlurProcessor:
+    def __init__(self):
+        self.detector = AdvancedFaceDetector()
+    
+    def apply_smart_blur(self, image: np.ndarray, box: List[int], confidence: float) -> np.ndarray:
+        """تطبيق تمويه ذكي مع تأثيرات متدرجة"""
+        x, y, w, h = box
+        center = (x + w//2, y + h//2)
+        radius = int(max(w, h) * 0.6)  # تقليل حجم منطقة التمويه قليلاً
+        
+        # إنشاء قناع دائري متدرج
+        mask = np.zeros(image.shape[:2], dtype=np.float32)
+        for r in range(radius):
+            cv2.circle(
+                mask,
+                center,
+                radius - r,
+                color=(1 - r/radius),
+                thickness=1
+            )
+        
+        # تطبيق التمويه بقوة متناسبة مع مستوى الثقة
+        blur_strength = int(99 * confidence) | 1  # يجب أن يكون رقماً فردياً
+        blurred = cv2.GaussianBlur(image, (blur_strength, blur_strength), 0)
         
         # دمج الصور
-        result = image.copy()
-        for c in range(3):
-            result[:,:,c] = (image[:,:,c] * (1 - mask_blur) + 
-                           blurred[:,:,c] * mask_blur)
+        mask = np.expand_dims(mask, -1)
+        result = image * (1 - mask) + blurred * mask
         
         return result.astype(np.uint8)
-
+    
     def process_image(self, image: Image.Image) -> Image.Image:
-        """معالجة الصورة باستخدام جميع التقنيات المتاحة"""
+        """معالجة الصورة وتمويه الوجوه"""
         try:
+            # تحويل الصورة إلى مصفوفة NumPy
             img = np.array(image)
-            results = self.face_detection.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
             
-            if not results.detections:
+            # كشف الوجوه
+            faces = self.detector.detect_faces(img)
+            
+            if not faces:
+                logger.info("لم يتم العثور على وجوه في الصورة")
                 return image
             
-            height, width = img.shape[:2]
-            for detection in results.detections:
-                bbox = detection.location_data.relative_bounding_box
-                x = int(bbox.xmin * width)
-                y = int(bbox.ymin * height)
-                w = int(bbox.width * width)
-                h = int(bbox.height * height)
-                
-                center_x = x + w // 2
-                center_y = y + h // 2
-                radius = int(max(w, h) * 0.7)
-                
+            # تطبيق التمويه على كل وجه
+            for face in faces:
                 img = self.apply_smart_blur(
                     img,
-                    (center_x, center_y),
-                    radius
+                    face['box'],
+                    face['confidence']
                 )
             
+            logger.info(f"تم العثور على {len(faces)} وجه/وجوه")
             return Image.fromarray(img)
             
         except Exception as e:
