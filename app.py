@@ -732,12 +732,12 @@ def main():
                     
                     with col1:
                         st.markdown(f'<p class="section-title">{TRANSLATIONS[lang]["original_image"]}</p>', unsafe_allow_html=True)
-                        st.image(image, use_column_width=True)
+                        st.image(image, use_container_width=True)
                     
                     with col2:
                         st.markdown(f'<p class="section-title">{TRANSLATIONS[lang]["processed_image"]}</p>', unsafe_allow_html=True)
                         processed_image = detect_and_blur_faces(image)
-                        st.image(processed_image, use_column_width=True)
+                        st.image(processed_image, use_container_width=True)
                         
                         # زر التحميل
                         if processed_image is not None:
