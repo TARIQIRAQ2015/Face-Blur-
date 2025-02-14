@@ -1,7 +1,6 @@
 import streamlit as st
 import cv2
 import numpy as np
-import mediapipe as mp
 from pdf2image import convert_from_bytes
 from PIL import Image
 import io
@@ -169,15 +168,9 @@ def set_luxury_style():
     </style>
     """, unsafe_allow_html=True)
 
-class AdvancedFaceDetector:
+class SimpleFaceDetector:
     def __init__(self):
-        # إعداد MediaPipe Face Detection
-        self.mp_face = mp.solutions.face_detection.FaceDetection(
-            model_selection=1,  # نموذج للمدى البعيد
-            min_detection_confidence=0.5  # توازن بين الدقة والحساسية
-        )
-        
-        # إعداد OpenCV Cascade Classifier
+        # تحميل نماذج الكشف عن الوجوه من OpenCV
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
 
@@ -189,49 +182,21 @@ class AdvancedFaceDetector:
         clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
         cl = clahe.apply(l)
         enhanced = cv2.merge((cl,a,b))
-        enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
-        return enhanced
+        return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
 
     def detect_faces(self, image: np.ndarray) -> list:
         faces = []
-        height, width = image.shape[:2]
-        
         # تحسين جودة الصورة
         enhanced = self.enhance_image(image)
-        
-        # كشف الوجوه باستخدام MediaPipe
-        rgb_image = cv2.cvtColor(enhanced, cv2.COLOR_BGR2RGB)
-        results = self.mp_face.process(rgb_image)
-        
-        if results.detections:
-            for detection in results.detections:
-                bbox = detection.location_data.relative_bounding_box
-                x = max(0, int(bbox.xmin * width))
-                y = max(0, int(bbox.ymin * height))
-                w = min(int(bbox.width * width), width - x)
-                h = min(int(bbox.height * height), height - y)
-                
-                # توسيع منطقة الوجه
-                padding = 0.2
-                x = max(0, int(x - w * padding))
-                y = max(0, int(y - h * padding))
-                w = min(int(w * (1 + 2*padding)), width - x)
-                h = min(int(h * (1 + 2*padding)), height - y)
-                
-                faces.append({
-                    'box': [x, y, w, h],
-                    'confidence': float(detection.score[0])
-                })
-        
-        # كشف إضافي باستخدام Cascade Classifier
         gray = cv2.cvtColor(enhanced, cv2.COLOR_BGR2GRAY)
         
         # كشف الوجوه الأمامية
-        cascade_faces = self.face_cascade.detectMultiScale(
+        front_faces = self.face_cascade.detectMultiScale(
             gray,
             scaleFactor=1.1,
             minNeighbors=5,
-            minSize=(20, 20)
+            minSize=(30, 30),
+            flags=cv2.CASCADE_SCALE_IMAGE
         )
         
         # كشف الوجوه الجانبية
@@ -239,77 +204,58 @@ class AdvancedFaceDetector:
             gray,
             scaleFactor=1.1,
             minNeighbors=5,
-            minSize=(20, 20)
+            minSize=(30, 30),
+            flags=cv2.CASCADE_SCALE_IMAGE
         )
         
         # دمج النتائج
-        for (x, y, w, h) in np.vstack((cascade_faces, profile_faces)) if len(profile_faces) > 0 else cascade_faces:
-            # تجنب التكرار
-            is_duplicate = False
-            for existing_face in faces:
-                ex, ey, ew, eh = existing_face['box']
-                if self.calculate_iou([x, y, w, h], [ex, ey, ew, eh]) > 0.3:
-                    is_duplicate = True
-                    break
+        all_faces = np.vstack((front_faces, profile_faces)) if len(profile_faces) > 0 else front_faces
+        
+        for (x, y, w, h) in all_faces:
+            # توسيع منطقة الوجه
+            padding_x = int(w * 0.2)
+            padding_y = int(h * 0.2)
+            x = max(0, x - padding_x)
+            y = max(0, y - padding_y)
+            w = min(w + 2*padding_x, image.shape[1] - x)
+            h = min(h + 2*padding_y, image.shape[0] - y)
             
-            if not is_duplicate:
-                faces.append({
-                    'box': [x, y, w, h],
-                    'confidence': 0.8
-                })
+            faces.append({
+                'box': [x, y, w, h],
+                'confidence': 0.9
+            })
         
         return faces
 
-    @staticmethod
-    def calculate_iou(box1, box2):
-        """حساب نسبة التداخل بين مربعين"""
-        x1, y1, w1, h1 = box1
-        x2, y2, w2, h2 = box2
-        
-        xi1 = max(x1, x2)
-        yi1 = max(y1, y2)
-        xi2 = min(x1 + w1, x2 + w2)
-        yi2 = min(y1 + h1, y2 + h2)
-        
-        inter_area = max(0, xi2 - xi1) * max(0, yi2 - yi1)
-        box1_area = w1 * h1
-        box2_area = w2 * h2
-        union_area = box1_area + box2_area - inter_area
-        
-        return inter_area / union_area if union_area > 0 else 0
-
 class FaceBlurProcessor:
     def __init__(self):
-        self.detector = AdvancedFaceDetector()
+        self.detector = SimpleFaceDetector()
     
-    def apply_strong_blur(self, image: np.ndarray, box: list) -> np.ndarray:
+    def apply_blur(self, image: np.ndarray, box: list) -> np.ndarray:
         x, y, w, h = box
-        center = (x + w//2, y + h//2)
-        radius = int(max(w, h) * 0.9)
+        face_region = image[y:y+h, x:x+w]
         
-        # إنشاء قناع متدرج للتمويه
-        mask = np.zeros(image.shape[:2], dtype=np.float32)
-        cv2.circle(mask, center, radius, 1.0, -1)
-        mask = cv2.GaussianBlur(mask, (99, 99), 30)
-        
-        # تطبيق تمويه قوي متعدد المستويات
-        blurred = cv2.GaussianBlur(image, (99, 99), 30)
+        # تطبيق تمويه قوي جداً
+        blurred = cv2.GaussianBlur(face_region, (99, 99), 30)
         blurred = cv2.GaussianBlur(blurred, (99, 99), 30)
         
-        # دمج الصور
-        mask = np.expand_dims(mask, -1)
-        result = image * (1 - mask) + blurred * mask
+        # دمج المنطقة المموهة مع الصورة الأصلية
+        result = image.copy()
+        result[y:y+h, x:x+w] = blurred
         
-        return result.astype(np.uint8)
+        return result
     
     def process_image(self, image: Image.Image) -> tuple:
         try:
             img = np.array(image)
+            if len(img.shape) == 2:  # التحقق من الصور بالأبيض والأسود
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            
             faces = self.detector.detect_faces(img)
             
             if faces:
                 for face in faces:
-                    img = self.apply_strong_blur(img, face['box'])
+                    img = self.apply_blur(img, face['box'])
             
             return Image.fromarray(img), len(faces)
             
