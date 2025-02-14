@@ -301,6 +301,55 @@ def process_pdf(pdf_bytes):
 def load_css():
     st.markdown("""
     <style>
+    /* إخفاء الأزرار العلوية */
+    .stDeployButton, [data-testid="stToolbar"], .reportview-container .main footer, header {
+        display: none !important;
+    }
+    
+    /* إخفاء القائمة العلوية */
+    #MainMenu, header, footer {
+        visibility: hidden;
+    }
+    
+    /* إخفاء الهامبرغر منيو */
+    .st-emotion-cache-1rs6os.ef3psqc12 {
+        display: none;
+    }
+    
+    /* إخفاء زر المشاركة وغيره */
+    .st-emotion-cache-zq5wmm.ezrtsby0 {
+        display: none;
+    }
+    
+    /* إخفاء أي عناصر إضافية في الهيدر */
+    [data-testid="stHeader"] {
+        display: none !important;
+    }
+    
+    /* تحسين مظهر التطبيق */
+    .stApp {
+        margin-top: -4rem;
+    }
+    
+    /* تنسيق العنوان الرئيسي */
+    .main-title {
+        font-size: 2.2rem;
+        font-weight: 700;
+        text-align: center;
+        padding: 1rem;
+        margin: 2rem 0;
+        background: linear-gradient(45deg, #2196F3, #00BCD4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        border-radius: 10px;
+    }
+    
+    /* تنسيق محدد اللغة */
+    .language-selector {
+        width: 120px;
+        margin: 0 auto;
+    }
+    
     /* التنسيق العام */
     [data-testid="stAppViewContainer"] {
         background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
@@ -442,39 +491,6 @@ def load_css():
         font-family: 'Roboto', sans-serif;
         line-height: 1.6;
     }
-    
-    /* تنسيق محدد اللغة */
-    .language-selector {
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 15px;
-        padding: 1rem;
-        margin: 1rem 0;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    
-    /* تأثيرات التحميل */
-    @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.5; }
-        100% { opacity: 1; }
-    }
-    
-    .loading {
-        animation: pulse 1.5s infinite;
-    }
-    
-    /* تنسيق الروابط */
-    a {
-        color: #2196F3;
-        text-decoration: none;
-        transition: all 0.3s ease;
-    }
-    
-    a:hover {
-        color: #00BCD4;
-        text-decoration: underline;
-    }
     </style>
     
     <!-- إضافة الخطوط -->
@@ -579,16 +595,18 @@ def main():
         load_css()
         configure_page()
         
-        # العنوان الرئيسي والترجمة في نفس الصف
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.title("🎭 أداة تمويه الوجوه / Face Blur Tool")
+        # العنوان الرئيسي والترجمة في صف واحد
+        st.markdown('<div class="main-title">🎭 أداة تمويه الوجوه / Face Blur Tool</div>', unsafe_allow_html=True)
+        
+        # محدد اللغة في وسط الصفحة
+        col1, col2, col3 = st.columns([1, 1, 1])
         with col2:
             lang = st.selectbox(
                 "🌐",
                 ['ar', 'en'],
                 format_func=lambda x: 'العربية' if x == 'ar' else 'English',
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                key="language-selector"
             )
         
         st.markdown("---")
