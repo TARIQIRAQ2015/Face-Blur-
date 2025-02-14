@@ -1,7 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image
 import io
 import logging
 import subprocess
@@ -9,8 +9,6 @@ import sys
 import os
 import time
 import gc
-import urllib.request
-import bz2
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -89,46 +87,113 @@ def configure_page():
     except Exception as e:
         logger.error(f"خطأ في تهيئة الصفحة: {str(e)}")
 
-def detect_and_blur_face_advanced(image):
+def detect_faces_advanced(image):
     """
-    كشف وتمويه الوجوه بشكل دقيق
+    كشف الوجوه باستخدام خوارزميات متعددة مع تحسين الدقة
     """
     try:
-        # تحويل الصورة إلى مصفوفة numpy
+        img_array = np.array(image)
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        
+        # تحميل الكواشف الأساسية فقط لتحسين الدقة
+        cascades = {
+            'frontal_default': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'),
+            'frontal_alt2': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'),
+            'profile': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml'),
+        }
+        
+        # تحسين معلمات الكشف
+        scale_factors = [1.1]  # تقليل عدد المحاولات لتحسين الدقة
+        min_neighbors_options = [5]  # زيادة عدد الجيران للتأكد من دقة الكشف
+        
+        all_faces = []
+        confidence_threshold = 50  # عتبة الثقة للكشف
+        
+        # تجربة كل كاشف
+        for cascade_name, cascade in cascades.items():
+            if cascade_name.startswith('frontal'):
+                faces = cascade.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=5,
+                    minSize=(30, 30),  # زيادة الحجم الأدنى
+                    maxSize=(800, 800),
+                    flags=cv2.CASCADE_SCALE_IMAGE
+                )
+                
+                # التحقق من جودة الكشف
+                for (x, y, w, h) in faces:
+                    face_roi = gray[y:y+h, x:x+w]
+                    # حساب متوسط التباين في منطقة الوجه
+                    variance = np.var(face_roi)
+                    if variance > confidence_threshold:
+                        all_faces.append((x, y, w, h))
+            
+            elif cascade_name == 'profile':
+                # كشف الوجوه الجانبية في الاتجاهين
+                for angle in [0, 1]:
+                    temp_gray = cv2.flip(gray, angle) if angle == 1 else gray
+                    faces = cascade.detectMultiScale(
+                        temp_gray,
+                        scaleFactor=1.1,
+                        minNeighbors=7,  # زيادة للتأكد من دقة الكشف
+                        minSize=(30, 30),
+                        maxSize=(800, 800)
+                    )
+                    
+                    # التحقق من الوجوه الجانبية
+                    for face in faces:
+                        x, y, w, h = face
+                        if angle == 1:
+                            x = temp_gray.shape[1] - x - w
+                        face_roi = gray[y:y+h, x:x+w]
+                        variance = np.var(face_roi)
+                        if variance > confidence_threshold:
+                            all_faces.append((x, y, w, h))
+        
+        # إزالة التداخلات وتصفية النتائج
+        filtered_faces = []
+        if all_faces:
+            # تحويل إلى مصفوفة numpy
+            all_faces = np.array(all_faces)
+            # إزالة الكشف المتكرر
+            filtered_faces = remove_overlapping_faces(all_faces, overlap_thresh=0.3)
+        
+        return filtered_faces, None
+    
+    except Exception as e:
+        logger.error(f"خطأ في كشف الوجوه: {str(e)}")
+        return [], None
+
+def blur_faces_simple(image):
+    """
+    تمويه الوجوه مع تحسين الدقة
+    """
+    try:
         img_array = np.array(image)
         
-        # كشف مواقع الوجوه باستخدام OpenCV
-        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-        faces = face_cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(30, 30),
-            flags=cv2.CASCADE_SCALE_IMAGE
-        )
-        
-        if len(faces) == 0:
-            st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
-            return image
+        # كشف الوجوه
+        filtered_faces, _ = detect_faces_advanced(image)
         
         # تمويه كل وجه
-        for (x, y, w, h) in faces:
-            # توسيع منطقة الوجه قليلاً
-            padding = int(min(w, h) * 0.1)
+        for (x, y, w, h) in filtered_faces:
+            # تقليل حجم منطقة التمويه
+            padding = int(min(w, h) * 0.05)  # تقليل التمويه الزائد
             x1 = max(0, x - padding)
             y1 = max(0, y - padding)
             x2 = min(img_array.shape[1], x + w + padding)
             y2 = min(img_array.shape[0], y + h + padding)
             
-            # تمويه منطقة الوجه
             face_roi = img_array[y1:y2, x1:x2]
             blurred_face = cv2.GaussianBlur(face_roi, (99, 99), 30)
             img_array[y1:y2, x1:x2] = blurred_face
         
-        st.success(f"✅ تم العثور على {len(faces)} وجه/وجوه")
+        if not filtered_faces:
+            st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
+        else:
+            st.success(f"✅ تم العثور على {len(filtered_faces)} وجه/وجوه")
+            
         return Image.fromarray(img_array)
-        
     except Exception as e:
         logger.error(f"خطأ في معالجة الصورة: {str(e)}")
         st.error(f"حدث خطأ أثناء معالجة الصورة: {str(e)}")
@@ -201,7 +266,7 @@ def process_pdf(pdf_bytes):
                 
                 image = process_pdf_page(pdf_bytes.getvalue(), page_num)
                 if image:
-                    processed_image = detect_and_blur_face_advanced(image)
+                    processed_image = blur_faces_simple(image)
                     all_processed_images.append(processed_image)
                     
                     # عرض الصور
@@ -456,6 +521,52 @@ def get_text(key, lang, *args):
         text = text.format(*args)
     return text
 
+def remove_overlapping_faces(faces, overlap_thresh=0.3):
+    """
+    إزالة التداخلات بين المستطيلات المكتشفة للوجوه
+    """
+    if len(faces) == 0:
+        return []
+    
+    # تحويل القائمة إلى مصفوفة numpy
+    faces = np.array(faces)
+    
+    # حساب المساحات
+    areas = faces[:, 2] * faces[:, 3]
+    
+    # ترتيب الوجوه حسب المساحة (من الأكبر إلى الأصغر)
+    idxs = areas.argsort()[::-1]
+    
+    # قائمة للاحتفاظ بالوجوه المقبولة
+    keep = []
+    
+    while len(idxs) > 0:
+        # إضافة أكبر وجه إلى القائمة
+        current_idx = idxs[0]
+        keep.append(current_idx)
+        
+        if len(idxs) == 1:
+            break
+            
+        # حساب نسبة التداخل مع باقي الوجوه
+        xx1 = np.maximum(faces[current_idx][0], faces[idxs[1:]][:, 0])
+        yy1 = np.maximum(faces[current_idx][1], faces[idxs[1:]][:, 1])
+        xx2 = np.minimum(faces[current_idx][0] + faces[current_idx][2],
+                        faces[idxs[1:]][:, 0] + faces[idxs[1:]][:, 2])
+        yy2 = np.minimum(faces[current_idx][1] + faces[current_idx][3],
+                        faces[idxs[1:]][:, 1] + faces[idxs[1:]][:, 3])
+        
+        w = np.maximum(0, xx2 - xx1)
+        h = np.maximum(0, yy2 - yy1)
+        
+        # حساب المساحة المتداخلة
+        overlap = (w * h) / areas[idxs[1:]]
+        
+        # حذف الوجوه المتداخلة
+        idxs = np.delete(idxs, np.concatenate(([0], np.where(overlap > overlap_thresh)[0] + 1)))
+    
+    return faces[keep].tolist()
+
 def main():
     try:
         load_css()
@@ -477,6 +588,9 @@ def main():
         
         st.markdown("---")
         
+        # تطبيق اتجاه النص حسب اللغة
+        text_class = 'arabic-text' if lang == 'ar' else 'english-text'
+        
         # منطقة رفع الملفات
         uploaded_file = st.file_uploader(
             get_text('upload_button', lang),
@@ -495,22 +609,24 @@ def main():
                     
                     with st.spinner(get_text('processing', lang)):
                         process_pdf(uploaded_file)
-                else:
-                    image = Image.open(uploaded_file)
+        else:
+            image = Image.open(uploaded_file)
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.image(image, caption=get_text("original_image", lang), use_container_width=True)
+                        st.markdown(f'<p class="{text_class}">{get_text("original_image", lang)}</p>', unsafe_allow_html=True)
+                        st.image(image, use_container_width=True)
                     
                     with st.spinner(get_text('processing', lang)):
-                        processed_image = detect_and_blur_face_advanced(image)
+                        processed_image = blur_faces_simple(image)
                     
                     with col2:
-                        st.image(processed_image, caption=get_text("processed_image", lang), use_container_width=True)
+                        st.markdown(f'<p class="{text_class}">{get_text("processed_image", lang)}</p>', unsafe_allow_html=True)
+                        st.image(processed_image, use_container_width=True)
                     
                     # زر التحميل
-                    buf = io.BytesIO()
-                    processed_image.save(buf, format="PNG")
+            buf = io.BytesIO()
+            processed_image.save(buf, format="PNG")
                     st.download_button(
                         get_text('download_button', lang),
                         buf.getvalue(),
@@ -521,6 +637,18 @@ def main():
             except Exception as e:
                 logger.error(f"Error processing file: {str(e)}")
                 st.error(get_text('processing_error', lang))
+        
+        # الملاحظات
+        st.markdown("---")
+        st.markdown(f"""
+        <div class="{text_class}">
+            <h3>{get_text('notes', lang)}</h3>
+            <ul>
+                <li>{get_text('note_formats', lang)}</li>
+                {f'<li>{get_text("note_pdf", lang)}</li>' if PDF_SUPPORT else ''}
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
         
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
