@@ -2,4 +2,7 @@ streamlit>=1.31.0
 opencv-python-headless>=4.8.1.78
 numpy>=1.26.0
 Pillow>=10.0.0
-pdf2image==1.16.3
+pdf2image>=1.16.3
+PyPDF2>=3.0.0
+pikepdf>=8.11.1
+poppler-utils>=0.68.0
