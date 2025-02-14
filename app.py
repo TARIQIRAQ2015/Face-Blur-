@@ -257,67 +257,48 @@ class FaceBlurProcessor:
             raise
 
 def main():
-    set_luxury_style()
+    st.set_page_config(page_title="تمويه الوجوه", page_icon="🎭", layout="wide")
     
     st.markdown("""
-    <div class="luxury-title">
-        <h1>🎭 نظام تمويه الوجوه الاحترافي</h1>
-        <p>معالجة فائقة الدقة باستخدام أحدث تقنيات الذكاء الاصطناعي</p>
+    <div style="text-align: center; padding: 2rem;">
+        <h1 style="color: #1E3D59;">🎭 نظام تمويه الوجوه الذكي</h1>
+        <p style="color: #666;">معالجة متطورة للصور باستخدام الذكاء الاصطناعي</p>
     </div>
     """, unsafe_allow_html=True)
     
     processor = FaceBlurProcessor()
     
-    st.markdown("""
-    <div class="upload-zone">
-        <h2 style='color: var(--gold); font-size: 2rem; margin-bottom: 1rem;'>📤 رفع الملفات</h2>
-        <p style='color: var(--accent-color); font-size: 1.2rem;'>يمكنك رفع صور بصيغة JPG, JPEG, PNG أو ملفات PDF</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    uploaded_file = st.file_uploader("", type=["jpg", "jpeg", "png", "pdf"])
+    uploaded_file = st.file_uploader(
+        "اختر صورة أو ملف PDF",
+        type=["jpg", "jpeg", "png", "pdf"]
+    )
     
     if uploaded_file:
         try:
             with st.spinner("جاري المعالجة..."):
-                progress = st.progress(0)
-                status = st.empty()
-                
                 if uploaded_file.type == "application/pdf":
                     images = convert_from_bytes(uploaded_file.read())
                     total_faces = 0
                     processed_images = []
                     
+                    progress = st.progress(0)
                     for idx, img in enumerate(images, 1):
-                        progress.progress((idx / len(images)))
-                        status.text(f"معالجة الصفحة {idx} من {len(images)}")
+                        progress.progress(idx / len(images))
                         
                         processed, faces_count = processor.process_image(img)
                         total_faces += faces_count
                         processed_images.append(processed)
                         
-                        st.markdown(f"""
-                        <div class="result-panel">
-                            <h3 style='color: var(--gold);'>نتيجة معالجة الصفحة {idx}</h3>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        st.image(processed, use_column_width=True)
+                        st.image(processed, caption=f"الصفحة {idx}", use_column_width=True)
                     
-                    # تجميع كل الصور في ملف PDF واحد
+                    # تجميع كل الصور في ملف PDF
                     pdf_buffer = io.BytesIO()
                     processed_images[0].save(
                         pdf_buffer, "PDF", save_all=True, 
                         append_images=processed_images[1:]
                     )
                     
-                    st.markdown(f"""
-                    <div class="stats-panel">
-                        <h3 style='color: var(--gold);'>إحصائيات المعالجة</h3>
-                        <p>عدد الصفحات: {len(images)}</p>
-                        <p>إجمالي الوجوه المكتشفة: {total_faces}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.success(f"تم معالجة {len(images)} صفحة و {total_faces} وجه")
                     
                     st.download_button(
                         "⬇️ تحميل الملف كاملاً",
@@ -326,15 +307,9 @@ def main():
                         "application/pdf"
                     )
                     
-        else:
-            image = Image.open(uploaded_file)
+                else:
+                    image = Image.open(uploaded_file)
                     processed, faces_count = processor.process_image(image)
-                    
-                    st.markdown("""
-                    <div class="result-panel">
-                        <h3 style='color: var(--gold);'>نتيجة المعالجة</h3>
-                    </div>
-                    """, unsafe_allow_html=True)
                     
                     col1, col2 = st.columns(2)
                     with col1:
@@ -342,15 +317,9 @@ def main():
                     with col2:
                         st.image(processed, caption="الصورة بعد المعالجة", use_column_width=True)
                     
-                    st.markdown(f"""
-                    <div class="stats-panel">
-                        <h3 style='color: var(--gold);'>إحصائيات المعالجة</h3>
-                        <p>الوجوه المكتشفة: {faces_count}</p>
-                        <p>تاريخ المعالجة: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            buf = io.BytesIO()
+                    st.success(f"تم العثور على {faces_count} وجه")
+                    
+                    buf = io.BytesIO()
                     processed.save(buf, format="PNG")
                     st.download_button(
                         "⬇️ تحميل الصورة المعالجة",
@@ -359,20 +328,10 @@ def main():
                         "image/png"
                     )
                 
-                st.markdown("""
-                <div class="success-msg">
-                    <h3>✨ تمت المعالجة بنجاح!</h3>
-                </div>
-                """, unsafe_allow_html=True)
                 st.balloons()
-            
+                
         except Exception as e:
-            st.markdown(f"""
-            <div class="error-msg">
-                <h3>❌ حدث خطأ</h3>
-                <p>{str(e)}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.error(f"حدث خطأ: {str(e)}")
 
 if __name__ == "__main__":
     main()
