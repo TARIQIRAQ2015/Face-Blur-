@@ -1,6 +1,0 @@
-poppler-utils
-tesseract-ocr
-libtesseract-dev
-libpoppler-cpp-dev
-python3-dev
-build-essential
