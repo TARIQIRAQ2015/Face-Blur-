@@ -178,56 +178,58 @@ def blur_faces_advanced(image):
     try:
         # تحويل الصورة إلى مصفوفة numpy
         img_array = np.array(image)
+        height, width = img_array.shape[:2]
         
-        # كشف الوجوه باستخدام MediaPipe
+        # كشف الوجوه باستخدام MediaPipe مع إعدادات دقيقة
         with mp_face_detection.FaceDetection(
             model_selection=1,  # نموذج كامل للدقة العالية
-            min_detection_confidence=0.5
+            min_detection_confidence=0.3  # تقليل عتبة الثقة لالتقاط المزيد من الوجوه
         ) as face_detection:
+            # تحسين الصورة للكشف
             results = face_detection.process(img_array)
             
             if not results.detections:
-                st.warning(get_text('no_faces', lang))
-                return image
+                # محاولة ثانية مع تحسين الإضاءة
+                enhanced = cv2.convertScaleAbs(img_array, alpha=1.2, beta=10)
+                results = face_detection.process(enhanced)
+                if not results.detections:
+                    st.warning(get_text('no_faces', lang))
+                    return image
             
             # إنشاء قناع للوجوه
-            mask = Image.new('L', image.size, 0)
+            mask = Image.new('L', (width, height), 0)
             mask_draw = ImageDraw.Draw(mask)
             
-            height, width = img_array.shape[:2]
-            
+            detected_faces = []
             # معالجة كل وجه تم اكتشافه
             for detection in results.detections:
-                # الحصول على إحداثيات الوجه
                 bbox = detection.location_data.relative_bounding_box
                 x = int(bbox.xmin * width)
                 y = int(bbox.ymin * height)
                 w = int(bbox.width * width)
                 h = int(bbox.height * height)
                 
-                # توسيع منطقة الوجه قليلاً
-                padding_x = int(w * 0.2)
-                padding_y = int(h * 0.2)
-                x1 = max(0, x - padding_x)
-                y1 = max(0, y - padding_y)
-                x2 = min(width, x + w + padding_x)
-                y2 = min(height, y + h + padding_y)
+                # حساب مركز ونصف قطر الدائرة
+                center_x = x + w // 2
+                center_y = y + h // 2
+                radius = int(max(w, h) * 0.6)  # تعديل حجم الدائرة ليغطي الوجه بشكل أفضل
                 
                 # رسم دائرة على القناع
-                center_x = (x1 + x2) // 2
-                center_y = (y1 + y2) // 2
-                radius = max(x2 - x1, y2 - y1) // 2
                 mask_draw.ellipse(
-                    [center_x - radius, center_y - radius, 
-                     center_x + radius, center_y + radius],
+                    [
+                        center_x - radius, center_y - radius,
+                        center_x + radius, center_y + radius
+                    ],
                     fill=255
                 )
+                
+                detected_faces.append((center_x, center_y, radius))
             
             # تنعيم حواف القناع
-            mask = mask.filter(ImageFilter.GaussianBlur(radius=15))
+            mask = mask.filter(ImageFilter.GaussianBlur(radius=radius//10))
             mask = np.array(mask)
             
-            # إنشاء نسخة مموهة من الصورة
+            # إنشاء نسخة مموهة من الصورة كاملة
             blurred = cv2.GaussianBlur(img_array, (99, 99), 30)
             
             # دمج الصورة الأصلية مع المموهة باستخدام القناع
@@ -235,7 +237,12 @@ def blur_faces_advanced(image):
             result = img_array * (1 - mask) + blurred * mask
             
             result_image = Image.fromarray(result.astype('uint8'))
-            st.success(get_text('faces_found', lang, len(results.detections)))
+            st.success(get_text('faces_found', lang, len(detected_faces)))
+            
+            # عرض معلومات إضافية عن الوجوه المكتشفة
+            if detected_faces:
+                st.info(f"تم العثور على {len(detected_faces)} وجه/وجوه بأحجام مختلفة")
+                
             return result_image
             
     except Exception as e:
