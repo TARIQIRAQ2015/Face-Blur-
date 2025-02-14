@@ -167,7 +167,7 @@ def detect_faces_advanced(image):
 
 def blur_faces_simple(image):
     """
-    تمويه الوجوه مع تحسين الدقة
+    تمويه الوجوه بشكل دائري
     """
     try:
         img_array = np.array(image)
@@ -177,16 +177,27 @@ def blur_faces_simple(image):
         
         # تمويه كل وجه
         for (x, y, w, h) in filtered_faces:
-            # تقليل حجم منطقة التمويه
-            padding = int(min(w, h) * 0.05)  # تقليل التمويه الزائد
+            # إنشاء قناع دائري
+            mask = np.zeros((h, w), dtype=np.uint8)
+            center = (w // 2, h // 2)
+            radius = min(w, h) // 2
+            cv2.circle(mask, center, radius, 255, -1)
+            
+            # توسيع منطقة الوجه قليلاً
+            padding = int(min(w, h) * 0.05)
             x1 = max(0, x - padding)
             y1 = max(0, y - padding)
             x2 = min(img_array.shape[1], x + w + padding)
             y2 = min(img_array.shape[0], y + h + padding)
             
+            # تمويه منطقة الوجه
             face_roi = img_array[y1:y2, x1:x2]
             blurred_face = cv2.GaussianBlur(face_roi, (99, 99), 30)
-            img_array[y1:y2, x1:x2] = blurred_face
+            
+            # تطبيق القناع الدائري
+            mask = cv2.resize(mask, (x2-x1, y2-y1))
+            mask_3d = np.stack([mask] * 3, axis=2) / 255.0
+            img_array[y1:y2, x1:x2] = blurred_face * mask_3d + face_roi * (1 - mask_3d)
         
         if not filtered_faces:
             st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
@@ -315,7 +326,7 @@ def load_css():
     <style>
     /* التصميم الأساسي */
     .stApp {
-        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+        background: linear-gradient(135deg, #13151A 0%, #1E2128 100%);
         color: #E2E8F0;
     }
     
@@ -326,101 +337,99 @@ def load_css():
     
     /* تنسيق العنوان الرئيسي */
     .main-title {
-        background: linear-gradient(45deg, #38BDF8, #818CF8);
+        background: linear-gradient(45deg, #00F5A0, #00D9F5);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        font-size: 2.5rem;
+        font-size: 2.8rem;
         font-weight: 800;
         text-align: center;
         padding: 2rem 0;
         margin-bottom: 2rem;
         font-family: 'Tajawal', sans-serif;
+        letter-spacing: -1px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
     }
     
     /* تنسيق منطقة رفع الملفات */
     .uploadfile-box {
-        background: rgba(255, 255, 255, 0.05);
-        border: 2px dashed rgba(255, 255, 255, 0.2);
-        border-radius: 15px;
-        padding: 2rem;
+        background: rgba(255, 255, 255, 0.03);
+        border: 2px dashed rgba(0, 245, 160, 0.3);
+        border-radius: 20px;
+        padding: 2.5rem;
         text-align: center;
         transition: all 0.3s ease;
+        backdrop-filter: blur(10px);
     }
     
     .uploadfile-box:hover {
-        border-color: #38BDF8;
-        background: rgba(56, 189, 248, 0.1);
+        border-color: #00F5A0;
+        background: rgba(0, 245, 160, 0.05);
+        transform: translateY(-2px);
     }
     
     /* تنسيق الأزرار */
     .stButton button {
-        background: linear-gradient(45deg, #38BDF8, #818CF8);
-        color: white;
+        background: linear-gradient(45deg, #00F5A0, #00D9F5);
+        color: #13151A;
         border: none;
-        padding: 0.75rem 2rem;
+        padding: 0.8rem 2.5rem;
         border-radius: 50px;
         font-weight: bold;
         transition: all 0.3s ease;
         width: 100%;
         margin-top: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.9rem;
     }
     
     .stButton button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(56, 189, 248, 0.3);
+        box-shadow: 0 5px 20px rgba(0, 245, 160, 0.3);
     }
     
     /* تنسيق محدد اللغة */
     .language-selector {
         background: rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
-        padding: 0.5rem;
-        width: 150px;
+        border-radius: 15px;
+        padding: 0.8rem;
+        width: 180px;
         margin: 0 auto;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
     }
     
     /* تنسيق الصور */
     [data-testid="stImage"] {
-        border-radius: 15px;
+        border-radius: 20px;
         overflow: hidden;
-        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
         transition: all 0.3s ease;
     }
     
     [data-testid="stImage"]:hover {
         transform: scale(1.02);
+        box-shadow: 0 12px 40px rgba(0, 245, 160, 0.2);
     }
     
     /* تنسيق التنبيهات */
     .stAlert {
         background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
+        border: 1px solid rgba(0, 245, 160, 0.2);
+        border-radius: 15px;
         backdrop-filter: blur(10px);
+        padding: 1rem 1.5rem;
+        color: #E2E8F0;
     }
     
     /* تنسيق النص */
     .text-container {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-    }
-    
-    /* تنسيق النص العربي */
-    .arabic-text {
-        direction: rtl;
-        text-align: right;
-        font-family: 'Tajawal', sans-serif;
-        line-height: 1.8;
-    }
-    
-    /* تنسيق النص الإنجليزي */
-    .english-text {
-        direction: ltr;
-        text-align: left;
-        font-family: 'Inter', sans-serif;
-        line-height: 1.8;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 15px;
+        padding: 2rem;
+        margin: 1.5rem 0;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
     }
     
     /* تأثيرات إضافية */
@@ -431,14 +440,39 @@ def load_css():
     }
     
     .gradient-bg {
-        background: linear-gradient(-45deg, #38BDF8, #818CF8, #38BDF8);
+        background: linear-gradient(-45deg, #00F5A0, #00D9F5, #00F5A0);
         background-size: 200% 200%;
         animation: gradient 15s ease infinite;
+    }
+    
+    /* تنسيق شريط التقدم */
+    .stProgress > div > div {
+        background: linear-gradient(90deg, #00F5A0, #00D9F5);
+        height: 8px;
+        border-radius: 4px;
+    }
+    
+    /* تحسين القراءة */
+    p, li {
+        line-height: 1.8;
+        letter-spacing: 0.3px;
+    }
+    
+    /* تنسيق الروابط */
+    a {
+        color: #00F5A0;
+        text-decoration: none;
+        transition: all 0.3s ease;
+    }
+    
+    a:hover {
+        color: #00D9F5;
+        text-decoration: underline;
     }
     </style>
     
     <!-- إضافة الخطوط -->
-    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     """, unsafe_allow_html=True)
 
 # إضافة الترجمات
