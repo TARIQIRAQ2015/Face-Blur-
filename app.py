@@ -4,18 +4,33 @@ import numpy as np
 from PIL import Image
 import io
 import logging
+import subprocess
+import sys
+import os
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# التحقق من وجود مكتبة pdf2image
+# التحقق من وجود Poppler
+def check_poppler():
+    try:
+        # محاولة تنفيذ أمر pdftoppm للتحقق من وجود Poppler
+        subprocess.run(['pdftoppm', '-v'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return True
+    except FileNotFoundError:
+        return False
+
+# التحقق من وجود مكتبة pdf2image و Poppler
 PDF_SUPPORT = False
 try:
     from pdf2image import convert_from_bytes
-    PDF_SUPPORT = True
+    if check_poppler():
+        PDF_SUPPORT = True
+    else:
+        logger.warning("Poppler غير مثبت في النظام")
 except ImportError:
-    logger.warning("مكتبة pdf2image غير متوفرة. لن يتم دعم ملفات PDF")
+    logger.warning("مكتبة pdf2image غير متوفرة")
 
 def configure_page():
     try:
