@@ -313,167 +313,77 @@ def process_pdf(pdf_bytes):
 def load_css():
     st.markdown("""
     <style>
-    /* إخفاء الأزرار العلوية */
-    .stDeployButton, [data-testid="stToolbar"], .reportview-container .main footer, header {
-        display: none !important;
-    }
-    
-    /* إخفاء القائمة العلوية */
-    #MainMenu, header, footer {
-        visibility: hidden;
-    }
-    
-    /* إخفاء الهامبرغر منيو */
-    .st-emotion-cache-1rs6os.ef3psqc12 {
-        display: none;
-    }
-    
-    /* إخفاء زر المشاركة وغيره */
-    .st-emotion-cache-zq5wmm.ezrtsby0 {
-        display: none;
-    }
-    
-    /* إخفاء أي عناصر إضافية في الهيدر */
-    [data-testid="stHeader"] {
-        display: none !important;
-    }
-    
-    /* تحسين مظهر التطبيق */
+    /* التصميم الأساسي */
     .stApp {
-        margin-top: -4rem;
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+        color: #E2E8F0;
+    }
+    
+    /* إخفاء العناصر غير المطلوبة */
+    #MainMenu, header, footer, .stDeployButton {
+        display: none !important;
     }
     
     /* تنسيق العنوان الرئيسي */
     .main-title {
-        font-size: 2.2rem;
-        font-weight: 700;
-        text-align: center;
-        padding: 1rem;
-        margin: 2rem 0;
-        background: linear-gradient(45deg, #2196F3, #00BCD4);
+        background: linear-gradient(45deg, #38BDF8, #818CF8);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        border-radius: 10px;
-    }
-    
-    /* تنسيق محدد اللغة */
-    .language-selector {
-        width: 120px;
-        margin: 0 auto;
-    }
-    
-    /* التنسيق العام */
-    [data-testid="stAppViewContainer"] {
-        background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
-        color: #ffffff;
-    }
-    
-    /* تنسيق الشريط الجانبي */
-    [data-testid="stSidebar"] {
-        background: rgba(30, 30, 46, 0.9);
-        backdrop-filter: blur(10px);
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 2.5rem;
+        font-weight: 800;
+        text-align: center;
+        padding: 2rem 0;
+        margin-bottom: 2rem;
+        font-family: 'Tajawal', sans-serif;
     }
     
     /* تنسيق منطقة رفع الملفات */
-    .upload-area {
+    .uploadfile-box {
         background: rgba(255, 255, 255, 0.05);
         border: 2px dashed rgba(255, 255, 255, 0.2);
         border-radius: 15px;
         padding: 2rem;
         text-align: center;
         transition: all 0.3s ease;
-        margin: 1rem 0;
     }
     
-    .upload-area:hover {
-        border-color: #2196F3;
-        background: rgba(33, 150, 243, 0.1);
-    }
-    
-    /* تنسيق شريط التمرير */
-    [data-testid="stSlider"] > div > div {
-        background: linear-gradient(90deg, #2196F3, #00BCD4);
+    .uploadfile-box:hover {
+        border-color: #38BDF8;
+        background: rgba(56, 189, 248, 0.1);
     }
     
     /* تنسيق الأزرار */
     .stButton button {
-        background: linear-gradient(45deg, #2196F3, #00BCD4);
-        border-radius: 50px;
-        padding: 0.5rem 2rem;
-        border: none;
+        background: linear-gradient(45deg, #38BDF8, #818CF8);
         color: white;
+        border: none;
+        padding: 0.75rem 2rem;
+        border-radius: 50px;
         font-weight: bold;
         transition: all 0.3s ease;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        width: 100%;
+        margin-top: 1rem;
     }
     
     .stButton button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(33, 150, 243, 0.3);
+        box-shadow: 0 5px 15px rgba(56, 189, 248, 0.3);
     }
     
-    /* تنسيق التنبيهات */
-    .stAlert {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border: none;
-        border-radius: 10px;
-        color: white;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-    
-    /* تنسيق النصوص */
-    .text-container {
+    /* تنسيق محدد اللغة */
+    .language-selector {
         background: rgba(255, 255, 255, 0.05);
-        padding: 1.5rem;
         border-radius: 10px;
-        margin: 1rem 0;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    /* تنسيق العناوين */
-    h1 {
-        background: linear-gradient(45deg, #2196F3, #00BCD4);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 2.5rem;
-        margin-bottom: 2rem;
-        text-align: center;
-    }
-    
-    h2, h3, h4 {
-        color: #ffffff;
-        margin: 1rem 0;
-    }
-    
-    /* تنسيق القوائم */
-    ul {
-        list-style-type: none;
-        padding-left: 0;
-    }
-    
-    ul li {
-        margin: 0.5rem 0;
-        padding-left: 1.5rem;
-        position: relative;
-    }
-    
-    ul li:before {
-        content: "•";
-        color: #2196F3;
-        font-size: 1.5rem;
-        position: absolute;
-        left: 0;
-        top: -0.2rem;
+        padding: 0.5rem;
+        width: 150px;
+        margin: 0 auto;
     }
     
     /* تنسيق الصور */
     [data-testid="stImage"] {
         border-radius: 15px;
         overflow: hidden;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
         transition: all 0.3s ease;
     }
     
@@ -481,32 +391,54 @@ def load_css():
         transform: scale(1.02);
     }
     
-    /* تنسيق شريط التقدم */
-    .stProgress > div > div {
-        background: linear-gradient(90deg, #2196F3, #00BCD4);
-        height: 10px;
-        border-radius: 5px;
+    /* تنسيق التنبيهات */
+    .stAlert {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        backdrop-filter: blur(10px);
     }
     
-    /* تنسيق النص باللغة العربية */
+    /* تنسيق النص */
+    .text-container {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+    }
+    
+    /* تنسيق النص العربي */
     .arabic-text {
         direction: rtl;
         text-align: right;
         font-family: 'Tajawal', sans-serif;
-        line-height: 1.6;
+        line-height: 1.8;
     }
     
-    /* تنسيق النص باللغة الإنجليزية */
+    /* تنسيق النص الإنجليزي */
     .english-text {
         direction: ltr;
         text-align: left;
-        font-family: 'Roboto', sans-serif;
-        line-height: 1.6;
+        font-family: 'Inter', sans-serif;
+        line-height: 1.8;
+    }
+    
+    /* تأثيرات إضافية */
+    @keyframes gradient {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    
+    .gradient-bg {
+        background: linear-gradient(-45deg, #38BDF8, #818CF8, #38BDF8);
+        background-size: 200% 200%;
+        animation: gradient 15s ease infinite;
     }
     </style>
     
     <!-- إضافة الخطوط -->
-    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     """, unsafe_allow_html=True)
 
 # إضافة الترجمات
@@ -607,31 +539,30 @@ def main():
         load_css()
         configure_page()
         
-        # العنوان الرئيسي والترجمة في صف واحد
+        # العنوان الرئيسي مع محدد اللغة
         st.markdown('<div class="main-title">🎭 أداة تمويه الوجوه / Face Blur Tool</div>', unsafe_allow_html=True)
         
-        # محدد اللغة في وسط الصفحة
+        # محدد اللغة
         col1, col2, col3 = st.columns([1, 1, 1])
         with col2:
             lang = st.selectbox(
                 "🌐",
                 ['ar', 'en'],
                 format_func=lambda x: 'العربية' if x == 'ar' else 'English',
-                label_visibility="collapsed",
-                key="language-selector"
+                label_visibility="collapsed"
             )
-        
-        st.markdown("---")
         
         # تطبيق اتجاه النص حسب اللغة
         text_class = 'arabic-text' if lang == 'ar' else 'english-text'
         
         # منطقة رفع الملفات
+        st.markdown(f'<div class="uploadfile-box {text_class}">', unsafe_allow_html=True)
         uploaded_file = st.file_uploader(
             get_text('upload_button', lang),
             type=["jpg", "jpeg", "png", "pdf"],
             help=get_text('upload_help', lang)
         )
+        st.markdown('</div>', unsafe_allow_html=True)
         
         if uploaded_file is not None:
             try:
@@ -644,8 +575,8 @@ def main():
                     
                     with st.spinner(get_text('processing', lang)):
                         process_pdf(uploaded_file)
-        else:
-            image = Image.open(uploaded_file)
+                else:
+                    image = Image.open(uploaded_file)
                     col1, col2 = st.columns(2)
                     
                     with col1:
@@ -660,8 +591,8 @@ def main():
                         st.image(processed_image, use_container_width=True)
                     
                     # زر التحميل
-            buf = io.BytesIO()
-            processed_image.save(buf, format="PNG")
+                    buf = io.BytesIO()
+                    processed_image.save(buf, format="PNG")
                     st.download_button(
                         get_text('download_button', lang),
                         buf.getvalue(),
