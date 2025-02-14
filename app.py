@@ -1,7 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image
 import io
 import logging
 import subprocess
@@ -9,33 +9,10 @@ import sys
 import os
 import time
 import gc
-import mediapipe as mp
-from PIL import ImageDraw
-
-# تكوين الصفحة - يجب أن يكون أول أمر Streamlit
-st.set_page_config(
-    page_title="Face Blur Tool | أداة تمويه الوجوه",
-    page_icon="🎭",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# التحقق من دعم PDF
-try:
-    result = subprocess.run(['pdftoppm', '-v'], capture_output=True, text=True)
-    logger.info(f"Poppler version: {result.stderr}")
-    PDF_SUPPORT = True
-except FileNotFoundError:
-    logger.warning("Poppler not found. PDF support disabled.")
-    PDF_SUPPORT = False
-
-# إعداد MediaPipe
-mp_face_detection = mp.solutions.face_detection
-mp_drawing = mp.solutions.drawing_utils
 
 def check_poppler():
     """
@@ -110,96 +87,83 @@ def configure_page():
     except Exception as e:
         logger.error(f"خطأ في تهيئة الصفحة: {str(e)}")
 
-def detect_and_blur_faces(image):
+def detect_faces_advanced(image):
     """
-    كشف وتمويه الوجوه بشكل دائري نقي
+    كشف الوجوه باستخدام خوارزميات متعددة مع تحسين الدقة
     """
     try:
-        # تحويل الصورة إلى مصفوفة numpy
         img_array = np.array(image)
-        height, width = img_array.shape[:2]
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         
-        # نسخة للنتيجة النهائية
-        result = img_array.copy()
+        # تحميل الكواشف الأساسية فقط لتحسين الدقة
+        cascades = {
+            'frontal_default': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'),
+            'frontal_alt2': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'),
+            'profile': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml'),
+        }
         
-        # تحسين الصورة للكشف
-        enhanced = cv2.convertScaleAbs(img_array, alpha=1.2, beta=15)
+        # تحسين معلمات الكشف
+        scale_factors = [1.1]  # تقليل عدد المحاولات لتحسين الدقة
+        min_neighbors_options = [5]  # زيادة عدد الجيران للتأكد من دقة الكشف
         
-        # كشف الوجوه باستخدام MediaPipe
-        with mp_face_detection.FaceDetection(
-            model_selection=1,
-            min_detection_confidence=0.65  # تقليل الحساسية قليلاً
-        ) as face_detector:
-            # محاولة الكشف على الصورة الأصلية والمحسنة
-            results = face_detector.process(img_array)
-            if not results.detections:
-                results = face_detector.process(enhanced)
-                if not results.detections:
-                    return image  # إرجاع الصورة الأصلية بدون رسالة
-
-            faces_detected = 0
+        all_faces = []
+        confidence_threshold = 50  # عتبة الثقة للكشف
+        
+        # تجربة كل كاشف
+        for cascade_name, cascade in cascades.items():
+            if cascade_name.startswith('frontal'):
+                faces = cascade.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=5,
+                    minSize=(30, 30),  # زيادة الحجم الأدنى
+                    maxSize=(800, 800),
+                    flags=cv2.CASCADE_SCALE_IMAGE
+                )
+                
+                # التحقق من جودة الكشف
+                for (x, y, w, h) in faces:
+                    face_roi = gray[y:y+h, x:x+w]
+                    # حساب متوسط التباين في منطقة الوجه
+                    variance = np.var(face_roi)
+                    if variance > confidence_threshold:
+                        all_faces.append((x, y, w, h))
             
-            # معالجة كل وجه تم اكتشافه
-            for detection in results.detections:
-                if detection.score[0] < 0.65:
-                    continue
-                
-                bbox = detection.location_data.relative_bounding_box
-                x = int(bbox.xmin * width)
-                y = int(bbox.ymin * height)
-                w = int(bbox.width * width)
-                h = int(bbox.height * height)
-                
-                # التحقق من صحة الإحداثيات
-                if x < 0 or y < 0 or w <= 0 or h <= 0:
-                    continue
-                
-                # حساب مركز ونصف قطر الدائرة
-                center_x = x + w // 2
-                center_y = y + h // 2
-                radius = int(max(w, h) * 0.7)
-                
-                # إنشاء قناع دائري
-                mask = np.zeros((height, width), dtype=np.uint8)
-                cv2.circle(mask, (center_x, center_y), radius, 255, -1)
-                
-                # تنعيم حواف القناع
-                mask = cv2.GaussianBlur(mask, (21, 21), 11)
-                
-                # تحديد منطقة الوجه
-                y1 = max(0, center_y - radius)
-                y2 = min(height, center_y + radius)
-                x1 = max(0, center_x - radius)
-                x2 = min(width, center_x + radius)
-                
-                if y2 > y1 and x2 > x1:
-                    # تمويه منطقة الوجه
-                    face_region = result[y1:y2, x1:x2]
-                    blurred_region = cv2.GaussianBlur(face_region, (99, 99), 30)
-                    
-                    # تطبيق القناع
-                    mask_region = mask[y1:y2, x1:x2]
-                    mask_region = mask_region[:, :, np.newaxis] / 255.0
-                    
-                    # دمج المنطقة المموهة
-                    result[y1:y2, x1:x2] = (
-                        face_region * (1 - mask_region) + 
-                        blurred_region * mask_region
+            elif cascade_name == 'profile':
+                # كشف الوجوه الجانبية في الاتجاهين
+                for angle in [0, 1]:
+                    temp_gray = cv2.flip(gray, angle) if angle == 1 else gray
+                    faces = cascade.detectMultiScale(
+                        temp_gray,
+                        scaleFactor=1.1,
+                        minNeighbors=7,  # زيادة للتأكد من دقة الكشف
+                        minSize=(30, 30),
+                        maxSize=(800, 800)
                     )
                     
-                    faces_detected += 1
-            
-            # عرض رسالة واحدة فقط بعد اكتمال المعالجة
-            if faces_detected > 0:
-                st.success(f"✅ تم العثور وتمويه {faces_detected} وجه/وجوه")
-            else:
-                st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
-            
-            return Image.fromarray(result)
-            
+                    # التحقق من الوجوه الجانبية
+                    for face in faces:
+                        x, y, w, h = face
+                        if angle == 1:
+                            x = temp_gray.shape[1] - x - w
+                        face_roi = gray[y:y+h, x:x+w]
+                        variance = np.var(face_roi)
+                        if variance > confidence_threshold:
+                            all_faces.append((x, y, w, h))
+        
+        # إزالة التداخلات وتصفية النتائج
+        filtered_faces = []
+        if all_faces:
+            # تحويل إلى مصفوفة numpy
+            all_faces = np.array(all_faces)
+            # إزالة الكشف المتكرر
+            filtered_faces = remove_overlapping_faces(all_faces, overlap_thresh=0.3)
+        
+        return filtered_faces, None
+    
     except Exception as e:
-        logger.error(f"خطأ في معالجة الصورة: {str(e)}")
-        return image  # إرجاع الصورة الأصلية في حالة الخطأ
+        logger.error(f"خطأ في كشف الوجوه: {str(e)}")
+        return [], None
 
 def blur_faces_simple(image):
     """
@@ -209,7 +173,7 @@ def blur_faces_simple(image):
         img_array = np.array(image)
         
         # كشف الوجوه
-        filtered_faces = detect_faces_advanced(image)
+        filtered_faces, _ = detect_faces_advanced(image)
         
         # تمويه كل وجه
         for (x, y, w, h) in filtered_faces:
@@ -266,186 +230,250 @@ def get_pdf_page_count(pdf_bytes):
         logger.error(f"خطأ في قراءة معلومات PDF: {str(e)}")
         return 0
 
-def process_pdf(pdf_file):
+def process_pdf(pdf_bytes):
     """
-    معالجة ملف PDF وتمويه الوجوه في كل صفحة
+    معالجة ملف PDF وتحويله إلى صور
     """
+    if not PDF_SUPPORT:
+        st.error("عذراً، دعم ملفات PDF غير متوفر حالياً")
+        return []
+        
     try:
-        if not PDF_SUPPORT:
-            st.error(TRANSLATIONS['ar']['pdf_not_available'])
-            return
-
-        with st.spinner(TRANSLATIONS['ar']['pdf_processing']):
-            try:
-                # تحويل PDF إلى صور
-                images = convert_from_bytes(
-                    pdf_file.read(),
-                    dpi=200,
-                    fmt='ppm',
-                    thread_count=4
-                )
-            except Exception as e:
-                logger.error(f"خطأ في تحويل PDF: {str(e)}")
-                st.error(TRANSLATIONS['ar']['pdf_error'])
-                return
-
-            if not images:
-                st.warning(TRANSLATIONS['ar']['no_pages'])
-                return
-
-            # إنشاء قائمة للصور المعالجة
-            processed_images = []
-            total_pages = len(images)
-
-            # التحقق من عدد الصفحات
-            if total_pages > 100:
-                st.warning(TRANSLATIONS['ar']['page_limit'])
-                images = images[:100]
-                total_pages = 100
-
-            # إنشاء شريط التقدم
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-
-            # معالجة كل صفحة
-            for i, image in enumerate(images):
-                try:
-                    # تحديث شريط التقدم
-                    progress = (i + 1) / total_pages
-                    progress_bar.progress(progress)
-                    status_text.text(TRANSLATIONS['ar']['processing_page'].format(i+1, total_pages))
-
-                    # تحويل الصورة إلى RGB إذا لزم الأمر
-                    if image.mode != 'RGB':
-                        image = image.convert('RGB')
-
-                    # معالجة الصورة
-                    processed_image = detect_and_blur_faces(image)
-                    processed_images.append(processed_image)
-
-                    # تنظيف الذاكرة
-                    gc.collect()
-
-                except Exception as e:
-                    logger.error(f"خطأ في معالجة الصفحة {i+1}: {str(e)}")
-                    processed_images.append(image)
-                    continue
-
-            # إزالة شريط التقدم والنص
-            progress_bar.empty()
-            status_text.empty()
-
-            if not processed_images:
-                st.error(TRANSLATIONS['ar']['processing_error'])
-                return
-
-            try:
-                # إنشاء ملف PDF جديد
-                output_pdf = io.BytesIO()
-                processed_images[0].save(
-                    output_pdf,
-                    'PDF',
-                    save_all=True,
-                    append_images=processed_images[1:],
-                    resolution=200.0,
-                    quality=95
-                )
-
-                st.success(TRANSLATIONS['ar']['success'])
-
-                # زر تحميل الملف المعالج
-                st.download_button(
-                    TRANSLATIONS['ar']['download_pdf'],
-                    output_pdf.getvalue(),
-                    "processed_document.pdf",
-                    "application/pdf"
-                )
-
-            except Exception as e:
-                logger.error(f"خطأ في حفظ PDF: {str(e)}")
-                st.error(TRANSLATIONS['ar']['save_error'])
-
+        total_pages = get_pdf_page_count(pdf_bytes.getvalue())
+        
+        if total_pages == 0:
+            st.error("لم يتم العثور على صفحات في ملف PDF")
+            return []
+            
+        if total_pages > 500:
+            st.warning("⚠️ يمكن معالجة 500 صفحة كحد أقصى. سيتم معالجة أول 500 صفحة فقط.")
+            total_pages = 500
+        
+        st.info(f"🔄 جاري معالجة {total_pages} صفحة...")
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # قائمة لتخزين جميع الصور المعالجة
+        all_processed_images = []
+        
+        batch_size = 10
+        for batch_start in range(1, total_pages + 1, batch_size):
+            batch_end = min(batch_start + batch_size - 1, total_pages)
+            status_text.text(f"معالجة الصفحات {batch_start} إلى {batch_end}...")
+            
+            for page_num in range(batch_start, batch_end + 1):
+                progress_bar.progress((page_num - 1) / total_pages)
+                
+                image = process_pdf_page(pdf_bytes.getvalue(), page_num)
+                if image:
+                    processed_image = blur_faces_simple(image)
+                    all_processed_images.append(processed_image)
+                    
+                    # عرض الصور
+                    st.markdown(f"### صفحة {page_num}")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.image(image, caption="الصورة الأصلية", use_container_width=True)
+                    with col2:
+                        st.image(processed_image, caption="الصورة بعد التمويه", use_container_width=True)
+                
+                del image
+            
+            gc.collect()
+        
+        progress_bar.progress(1.0)
+        status_text.text("✅ تمت معالجة جميع الصفحات!")
+        
+        # إنشاء ملف PDF يحتوي على جميع الصور المعالجة
+        if all_processed_images:
+            pdf_output = io.BytesIO()
+            all_processed_images[0].save(
+                pdf_output,
+                "PDF",
+                save_all=True,
+                append_images=all_processed_images[1:],
+                resolution=150.0,
+                quality=85
+            )
+            
+            st.download_button(
+                "⬇️ تحميل الملف الكامل بعد المعالجة (PDF)",
+                pdf_output.getvalue(),
+                "processed_document.pdf",
+                "application/pdf"
+            )
+        
+        return []
+        
     except Exception as e:
         logger.error(f"خطأ في معالجة ملف PDF: {str(e)}")
-        st.error(TRANSLATIONS['ar']['processing_error'])
+        st.error(f"حدث خطأ في معالجة ملف PDF: {str(e)}")
+        return []
 
 def load_css():
     st.markdown("""
     <style>
-    /* تنسيق عام للتطبيق */
-    .stApp {
-        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
-        font-family: 'Tajawal', 'Plus Jakarta Sans', sans-serif;
-    }
-    
-    /* إخفاء العناصر غير المرغوبة */
-    #MainMenu, header, footer, .stDeployButton {
+    /* إخفاء الأزرار العلوية */
+    .stDeployButton, [data-testid="stToolbar"], .reportview-container .main footer, header {
         display: none !important;
     }
     
-    /* العنوان الرئيسي */
+    /* إخفاء القائمة العلوية */
+    #MainMenu, header, footer {
+        visibility: hidden;
+    }
+    
+    /* إخفاء الهامبرغر منيو */
+    .st-emotion-cache-1rs6os.ef3psqc12 {
+        display: none;
+    }
+    
+    /* إخفاء زر المشاركة وغيره */
+    .st-emotion-cache-zq5wmm.ezrtsby0 {
+        display: none;
+    }
+    
+    /* إخفاء أي عناصر إضافية في الهيدر */
+    [data-testid="stHeader"] {
+        display: none !important;
+    }
+    
+    /* تحسين مظهر التطبيق */
+    .stApp {
+        margin-top: -4rem;
+    }
+    
+    /* تنسيق العنوان الرئيسي */
     .main-title {
-        background: linear-gradient(45deg, #3B82F6, #60A5FA);
+        font-size: 2.2rem;
+        font-weight: 700;
+        text-align: center;
+        padding: 1rem;
+        margin: 2rem 0;
+        background: linear-gradient(45deg, #2196F3, #00BCD4);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        font-size: 3rem;
-        font-weight: 800;
-        text-align: center;
-        margin: 2rem 0;
-        padding: 1rem;
-        text-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
-        animation: glow 2s ease-in-out infinite alternate;
+        border-radius: 10px;
     }
     
-    /* تأثير التوهج */
-    @keyframes glow {
-        from {
-            text-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
-        }
-        to {
-            text-shadow: 0 0 30px rgba(59, 130, 246, 0.8);
-        }
+    /* تنسيق محدد اللغة */
+    .language-selector {
+        width: 120px;
+        margin: 0 auto;
     }
     
-    /* منطقة رفع الملفات */
-    [data-testid="stFileUploader"] {
+    /* التنسيق العام */
+    [data-testid="stAppViewContainer"] {
+        background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+        color: #ffffff;
+    }
+    
+    /* تنسيق الشريط الجانبي */
+    [data-testid="stSidebar"] {
+        background: rgba(30, 30, 46, 0.9);
+        backdrop-filter: blur(10px);
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    /* تنسيق منطقة رفع الملفات */
+    .upload-area {
         background: rgba(255, 255, 255, 0.05);
-        border: 2px dashed rgba(59, 130, 246, 0.3);
-        border-radius: 20px;
+        border: 2px dashed rgba(255, 255, 255, 0.2);
+        border-radius: 15px;
         padding: 2rem;
+        text-align: center;
         transition: all 0.3s ease;
+        margin: 1rem 0;
     }
     
-    [data-testid="stFileUploader"]:hover {
-        border-color: #3B82F6;
-        background: rgba(59, 130, 246, 0.1);
-        box-shadow: 0 0 30px rgba(59, 130, 246, 0.2);
+    .upload-area:hover {
+        border-color: #2196F3;
+        background: rgba(33, 150, 243, 0.1);
+    }
+    
+    /* تنسيق شريط التمرير */
+    [data-testid="stSlider"] > div > div {
+        background: linear-gradient(90deg, #2196F3, #00BCD4);
     }
     
     /* تنسيق الأزرار */
     .stButton button {
-        background: linear-gradient(45deg, #3B82F6, #60A5FA);
-        border: none;
+        background: linear-gradient(45deg, #2196F3, #00BCD4);
         border-radius: 50px;
-        padding: 0.75rem 2rem;
+        padding: 0.5rem 2rem;
+        border: none;
         color: white;
         font-weight: bold;
         transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
-        text-transform: uppercase;
-        letter-spacing: 1px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     }
     
     .stButton button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+        box-shadow: 0 5px 15px rgba(33, 150, 243, 0.3);
+    }
+    
+    /* تنسيق التنبيهات */
+    .stAlert {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border: none;
+        border-radius: 10px;
+        color: white;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+    
+    /* تنسيق النصوص */
+    .text-container {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 1.5rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    /* تنسيق العناوين */
+    h1 {
+        background: linear-gradient(45deg, #2196F3, #00BCD4);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 2.5rem;
+        margin-bottom: 2rem;
+        text-align: center;
+    }
+    
+    h2, h3, h4 {
+        color: #ffffff;
+        margin: 1rem 0;
+    }
+    
+    /* تنسيق القوائم */
+    ul {
+        list-style-type: none;
+        padding-left: 0;
+    }
+    
+    ul li {
+        margin: 0.5rem 0;
+        padding-left: 1.5rem;
+        position: relative;
+    }
+    
+    ul li:before {
+        content: "•";
+        color: #2196F3;
+        font-size: 1.5rem;
+        position: absolute;
+        left: 0;
+        top: -0.2rem;
     }
     
     /* تنسيق الصور */
     [data-testid="stImage"] {
-        border-radius: 20px;
+        border-radius: 15px;
         overflow: hidden;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
         transition: all 0.3s ease;
     }
     
@@ -453,115 +481,32 @@ def load_css():
         transform: scale(1.02);
     }
     
-    /* تنسيق التنبيهات */
-    .stAlert {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(59, 130, 246, 0.2) !important;
-        border-radius: 15px !important;
-        backdrop-filter: blur(10px);
-        color: white !important;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-    }
-    
-    /* تنسيق النصوص */
-    .stMarkdown {
-        color: #E2E8F0;
-    }
-    
-    h1, h2, h3 {
-        color: #F8FAFC;
-        font-weight: 700;
-    }
-    
-    /* تنسيق محدد اللغة */
-    .stSelectbox [data-testid="stMarkdown"] {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 15px;
-        padding: 0.5rem;
-        border: 1px solid rgba(59, 130, 246, 0.2);
-        backdrop-filter: blur(5px);
-    }
-    
     /* تنسيق شريط التقدم */
     .stProgress > div > div {
-        background: linear-gradient(90deg, #3B82F6, #60A5FA);
-        height: 8px;
-        border-radius: 4px;
+        background: linear-gradient(90deg, #2196F3, #00BCD4);
+        height: 10px;
+        border-radius: 5px;
     }
     
-    /* تأثيرات خلفية */
-    .stApp::before {
-        content: '';
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: 
-            radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 40%),
-            radial-gradient(circle at 80% 80%, rgba(96, 165, 250, 0.15) 0%, transparent 40%);
-        pointer-events: none;
-        z-index: -1;
-    }
-    
-    /* تنسيق الأعمدة */
-    [data-testid="column"] {
-        background: rgba(255, 255, 255, 0.02);
-        border-radius: 20px;
-        padding: 1.5rem;
-        backdrop-filter: blur(5px);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        transition: all 0.3s ease;
-    }
-    
-    [data-testid="column"]:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-    }
-    
-    /* تنسيق النص العربي */
+    /* تنسيق النص باللغة العربية */
     .arabic-text {
         direction: rtl;
         text-align: right;
         font-family: 'Tajawal', sans-serif;
-        line-height: 1.8;
-        color: #E2E8F0;
+        line-height: 1.6;
     }
     
-    /* تنسيق النص الإنجليزي */
+    /* تنسيق النص باللغة الإنجليزية */
     .english-text {
         direction: ltr;
         text-align: left;
-        font-family: 'Plus Jakarta Sans', sans-serif;
-        line-height: 1.8;
-        color: #E2E8F0;
-    }
-    
-    /* تنسيق الفواصل */
-    hr {
-        border: none;
-        height: 1px;
-        background: linear-gradient(90deg, 
-            transparent 0%, 
-            rgba(59, 130, 246, 0.3) 50%, 
-            transparent 100%
-        );
-        margin: 2rem 0;
-    }
-    
-    /* تأثيرات التحميل */
-    .stSpinner {
-        border-color: #3B82F6 !important;
-    }
-    
-    /* تنسيق التوضيحات */
-    .stTooltipIcon {
-        color: #3B82F6 !important;
+        font-family: 'Roboto', sans-serif;
+        line-height: 1.6;
     }
     </style>
     
     <!-- إضافة الخطوط -->
-    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     """, unsafe_allow_html=True)
 
 # إضافة الترجمات
@@ -576,21 +521,12 @@ TRANSLATIONS = {
         'download_button': '⬇️ تحميل الصورة المعدلة',
         'no_faces': '⚠️ لم يتم العثور على وجوه في الصورة',
         'faces_found': '✅ تم العثور على {} وجه/وجوه',
-        'pdf_processing': '🔄 جاري معالجة الملف...',
+        'pdf_processing': '🔄 جاري معالجة {} صفحة...',
         'pdf_complete': '✅ تمت معالجة جميع الصفحات!',
-        'download_pdf': '⬇️ تحميل الملف المعالج (PDF)',
+        'download_pdf': '⬇️ تحميل الملف الكامل بعد المعالجة (PDF)',
         'notes': '📝 ملاحظات',
         'note_formats': 'يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF',
         'note_pdf': 'معالجة ملفات PDF قد تستغرق بعض الوقت حسب عدد الصفحات',
-        'processing_error': '❌ حدث خطأ أثناء المعالجة',
-        'pdf_not_available': '❌ عذراً، دعم ملفات PDF غير متوفر حالياً',
-        'app_error': '❌ حدث خطأ في التطبيق. يرجى المحاولة مرة أخرى',
-        'pdf_error': '❌ حدث خطأ في قراءة ملف PDF. تأكد من أن الملف صالح.',
-        'no_pages': '⚠️ لم يتم العثور على صفحات في الملف',
-        'page_limit': '⚠️ يمكن معالجة 100 صفحة كحد أقصى. سيتم معالجة أول 100 صفحة.',
-        'processing_page': 'جاري معالجة الصفحة {} من {}',
-        'success': '✅ تمت المعالجة بنجاح',
-        'save_error': '❌ حدث خطأ في حفظ الملف النهائي'
     },
     'en': {
         'title': '🎭 Face Blur Tool',
@@ -602,21 +538,12 @@ TRANSLATIONS = {
         'download_button': '⬇️ Download Processed Image',
         'no_faces': '⚠️ No faces detected in the image',
         'faces_found': '✅ Found {} face(s)',
-        'pdf_processing': '🔄 Processing file...',
+        'pdf_processing': '🔄 Processing {} pages...',
         'pdf_complete': '✅ All pages processed!',
-        'download_pdf': '⬇️ Download Processed File (PDF)',
+        'download_pdf': '⬇️ Download Complete Processed File (PDF)',
         'notes': '📝 Notes',
         'note_formats': 'You can upload JPG, JPEG, PNG images or PDF files',
         'note_pdf': 'Processing PDF files may take some time depending on the number of pages',
-        'processing_error': '❌ Error during processing',
-        'pdf_not_available': '❌ Sorry, PDF support is currently not available',
-        'app_error': '❌ Application error occurred. Please try again',
-        'pdf_error': '❌ Error reading PDF file. Please make sure the file is valid.',
-        'no_pages': '⚠️ No pages found in the file',
-        'page_limit': '⚠️ Maximum 100 pages can be processed. Processing first 100 pages.',
-        'processing_page': 'Processing page {} of {}',
-        'success': '✅ Processing completed successfully',
-        'save_error': '❌ Error saving the final file'
     }
 }
 
@@ -675,105 +602,92 @@ def remove_overlapping_faces(faces, overlap_thresh=0.3):
     
     return faces[keep].tolist()
 
-def process_image(image):
-    """
-    معالجة الصورة مع محاولات متعددة للكشف
-    """
-    try:
-        # محاولة الكشف باستخدام النموذج المتقدم
-        result = detect_and_blur_faces(image)
-        
-        # إذا لم يتم العثور على وجوه، نجرب النموذج البسيط
-        if result == image:
-            result = blur_faces_simple(image)
-            
-        return result
-    except Exception as e:
-        logger.error(f"خطأ في معالجة الصورة: {str(e)}")
-        return image
-
 def main():
     try:
         load_css()
+        configure_page()
         
-        # العنوان الرئيسي
-        st.markdown('<div class="main-title">🎭 أداة تمويه الوجوه</div>', unsafe_allow_html=True)
+        # العنوان الرئيسي والترجمة في صف واحد
+        st.markdown('<div class="main-title">🎭 أداة تمويه الوجوه / Face Blur Tool</div>', unsafe_allow_html=True)
         
-        # محدد اللغة
-        col1, col2, col3 = st.columns([1,1,1])
+        # محدد اللغة في وسط الصفحة
+        col1, col2, col3 = st.columns([1, 1, 1])
         with col2:
             lang = st.selectbox(
                 "🌐",
                 ['ar', 'en'],
                 format_func=lambda x: 'العربية' if x == 'ar' else 'English',
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                key="language-selector"
             )
         
         st.markdown("---")
         
+        # تطبيق اتجاه النص حسب اللغة
+        text_class = 'arabic-text' if lang == 'ar' else 'english-text'
+        
         # منطقة رفع الملفات
         uploaded_file = st.file_uploader(
-            TRANSLATIONS[lang]['upload_button'],
-            type=['jpg', 'jpeg', 'png', 'pdf'],
-            help=TRANSLATIONS[lang]['upload_help']
+            get_text('upload_button', lang),
+            type=["jpg", "jpeg", "png", "pdf"],
+            help=get_text('upload_help', lang)
         )
         
         if uploaded_file is not None:
             try:
                 file_extension = uploaded_file.name.lower().split('.')[-1]
                 
-                if file_extension in ['jpg', 'jpeg', 'png']:
-                    # معالجة الصورة
-                    image = Image.open(uploaded_file)
+                if file_extension == 'pdf':
+                    if not PDF_SUPPORT:
+                        st.error(get_text('pdf_not_available', lang))
+                        return
                     
-                    # عرض الصور في عمودين
+                    with st.spinner(get_text('processing', lang)):
+                        process_pdf(uploaded_file)
+        else:
+            image = Image.open(uploaded_file)
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.markdown(f'<p class="section-title">{TRANSLATIONS[lang]["original_image"]}</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="{text_class}">{get_text("original_image", lang)}</p>', unsafe_allow_html=True)
                         st.image(image, use_container_width=True)
                     
+                    with st.spinner(get_text('processing', lang)):
+                        processed_image = blur_faces_simple(image)
+                    
                     with col2:
-                        st.markdown(f'<p class="section-title">{TRANSLATIONS[lang]["processed_image"]}</p>', unsafe_allow_html=True)
-                        processed_image = detect_and_blur_faces(image)
+                        st.markdown(f'<p class="{text_class}">{get_text("processed_image", lang)}</p>', unsafe_allow_html=True)
                         st.image(processed_image, use_container_width=True)
-                        
-                        # زر التحميل
-                        if processed_image is not None:
-                            buf = io.BytesIO()
-                            processed_image.save(buf, format="PNG")
-                            st.download_button(
-                                TRANSLATIONS[lang]['download_button'],
-                                buf.getvalue(),
-                                "blurred_image.png",
-                                "image/png"
-                            )
-                
-                elif file_extension == 'pdf' and PDF_SUPPORT:
-                    process_pdf(uploaded_file)
                     
-                else:
-                    st.error(TRANSLATIONS[lang]['format_error'])
-                    
+                    # زر التحميل
+            buf = io.BytesIO()
+            processed_image.save(buf, format="PNG")
+                    st.download_button(
+                        get_text('download_button', lang),
+                        buf.getvalue(),
+                        "blurred_image.png",
+                        "image/png"
+                    )
+            
             except Exception as e:
                 logger.error(f"Error processing file: {str(e)}")
-                st.error(TRANSLATIONS[lang]['processing_error'])
+                st.error(get_text('processing_error', lang))
         
         # الملاحظات
         st.markdown("---")
         st.markdown(f"""
-        <div class="notes-section">
-            <h3>{TRANSLATIONS[lang]['notes']}</h3>
+        <div class="{text_class}">
+            <h3>{get_text('notes', lang)}</h3>
             <ul>
-                <li>{TRANSLATIONS[lang]['note_formats']}</li>
-                {f'<li>{TRANSLATIONS[lang]["note_pdf"]}</li>' if PDF_SUPPORT else ''}
+                <li>{get_text('note_formats', lang)}</li>
+                {f'<li>{get_text("note_pdf", lang)}</li>' if PDF_SUPPORT else ''}
             </ul>
         </div>
         """, unsafe_allow_html=True)
         
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
-        st.error(TRANSLATIONS[lang]['app_error'])
+        st.error(get_text('app_error', lang))
 
 if __name__ == "__main__":
     main()
