@@ -4,11 +4,18 @@ import numpy as np
 from PIL import Image
 import io
 import logging
-from pdf2image import convert_from_bytes
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# التحقق من وجود مكتبة pdf2image
+PDF_SUPPORT = False
+try:
+    from pdf2image import convert_from_bytes
+    PDF_SUPPORT = True
+except ImportError:
+    logger.warning("مكتبة pdf2image غير متوفرة. لن يتم دعم ملفات PDF")
 
 def configure_page():
     try:
@@ -53,6 +60,10 @@ def process_pdf(pdf_bytes):
     """
     معالجة ملف PDF وتحويله إلى صور
     """
+    if not PDF_SUPPORT:
+        st.error("عذراً، دعم ملفات PDF غير متوفر حالياً")
+        return []
+        
     try:
         images = convert_from_bytes(pdf_bytes.getvalue())
         return images
@@ -71,18 +82,23 @@ def main():
         # إعدادات التمويه
         blur_intensity = st.slider("شدة التمويه", 25, 199, 99, step=2)
         
+        # تحديد أنواع الملفات المدعومة
+        allowed_types = ["jpg", "jpeg", "png"]
+        if PDF_SUPPORT:
+            allowed_types.append("pdf")
+        
         # رفع الملف
         uploaded_file = st.file_uploader(
-            "📤 ارفع صورة أو ملف PDF",
-            type=["jpg", "jpeg", "png", "pdf"],
-            help="يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF"
+            "📤 ارفع صورة" + (" أو ملف PDF" if PDF_SUPPORT else ""),
+            type=allowed_types,
+            help="يمكنك رفع صور بصيغ JPG, JPEG, PNG" + (" أو ملف PDF" if PDF_SUPPORT else "")
         )
         
         if uploaded_file is not None:
             try:
                 file_type = uploaded_file.type
                 
-                if "pdf" in file_type:
+                if PDF_SUPPORT and "pdf" in file_type:
                     with st.spinner("جاري معالجة ملف PDF..."):
                         pdf_images = process_pdf(uploaded_file)
                         
@@ -140,10 +156,11 @@ def main():
         st.markdown("---")
         st.markdown("""
         ### 📝 ملاحظات:
-        - يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF
+        - يمكنك رفع صور بصيغ JPG, JPEG, PNG""" + 
+        (" أو ملف PDF" if PDF_SUPPORT else "") + """
         - استخدم شريط التمرير للتحكم في شدة التمويه
-        - معالجة ملفات PDF قد تستغرق بعض الوقت حسب عدد الصفحات
-        """)
+        """ + ("""
+        - معالجة ملفات PDF قد تستغرق بعض الوقت حسب عدد الصفحات""" if PDF_SUPPORT else ""))
         
     except Exception as e:
         logger.error(f"خطأ في التطبيق: {str(e)}")
