@@ -112,6 +112,31 @@ def show_header():
     </style>
     """, unsafe_allow_html=True)
 
+def show_poppler_installation_instructions():
+    """عرض تعليمات تثبيت Poppler"""
+    st.error("❌ Poppler غير مثبت")
+    st.markdown("""
+    ### تعليمات تثبيت Poppler:
+    
+    #### على نظام Ubuntu/Debian:
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y poppler-utils
+    ```
+    
+    #### على نظام Windows:
+    1. قم بتحميل Poppler من [هذا الرابط](https://github.com/oschwartz10612/poppler-windows/releases/)
+    2. قم باستخراج الملفات إلى مجلد (مثلاً C:\\Program Files\\poppler)
+    3. أضف مسار المجلد bin إلى متغيرات النظام PATH
+    
+    #### على نظام macOS:
+    ```bash
+    brew install poppler
+    ```
+    
+    بعد التثبيت، قم بإعادة تشغيل التطبيق.
+    """)
+
 def main():
     set_page_config()
     show_header()
@@ -119,12 +144,18 @@ def main():
     processor = FaceBlurProcessor()
     
     # التحقق من تثبيت Poppler
-    if not check_poppler_installation():
-        st.warning("⚠️ تنبيه: Poppler غير مثبت. لن تتمكن من معالجة ملفات PDF.")
+    poppler_installed = check_poppler_installation()
     
     with st.container():
+        st.markdown("""
+        <div class="upload-text">
+            <h3>قم برفع صورة أو ملف PDF لتمويه الوجوه تلقائياً</h3>
+            <p>يمكنك رفع الملفات بصيغة JPG, JPEG, PNG أو PDF</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
         uploaded_file = st.file_uploader(
-            "ارفع صورة أو ملف PDF",
+            "اختر ملفاً",
             type=["jpg", "jpeg", "png", "pdf"],
             help="يمكنك رفع ملفات بصيغة JPG, JPEG, PNG أو PDF"
         )
@@ -133,29 +164,33 @@ def main():
         try:
             file_type = uploaded_file.type
             
+            if "pdf" in file_type and not poppler_installed:
+                show_poppler_installation_instructions()
+                return
+            
             with st.spinner("جاري معالجة الملف..."):
                 if "pdf" in file_type:
-                    if not check_poppler_installation():
-                        st.error("❌ يرجى تثبيت Poppler لمعالجة ملفات PDF")
-                        return
-                    
-                    st.write("📄 معالجة ملف PDF...")
+                    st.info("📄 جاري معالجة ملف PDF...")
                     processed_images = process_pdf(uploaded_file, processor)
                     
+                    st.success(f"✅ تم معالجة {len(processed_images)} صفحة/صفحات بنجاح")
+                    
                     for idx, img in enumerate(processed_images, 1):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.image(img, caption=f"صفحة {idx} بعد المعالجة", use_column_width=True)
-                        with col2:
-                            buf = io.BytesIO()
-                            img.save(buf, format="PNG")
-                            st.download_button(
-                                f"⬇️ تحميل الصفحة {idx}",
-                                buf.getvalue(),
-                                f"blurred_page_{idx}.png",
-                                "image/png",
-                                use_container_width=True
-                            )
+                        with st.container():
+                            st.markdown(f"### صفحة {idx}")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.image(img, caption=f"صفحة {idx} بعد المعالجة", use_column_width=True)
+                            with col2:
+                                buf = io.BytesIO()
+                                img.save(buf, format="PNG")
+                                st.download_button(
+                                    f"⬇️ تحميل الصفحة {idx}",
+                                    buf.getvalue(),
+                                    f"blurred_page_{idx}.png",
+                                    "image/png",
+                                    use_container_width=True
+                                )
                 else:
                     col1, col2 = st.columns(2)
                     
@@ -180,7 +215,7 @@ def main():
         except Exception as e:
             st.error(f"❌ حدث خطأ أثناء معالجة الملف: {str(e)}")
             logger.error(f"خطأ: {str(e)}")
-            
+    
     # إضافة معلومات إضافية في نهاية الصفحة
     with st.expander("ℹ️ معلومات عن الأداة"):
         st.markdown("""
@@ -188,6 +223,7 @@ def main():
         - يمكنك معالجة الصور بصيغ JPG, JPEG, PNG
         - يمكنك أيضاً معالجة ملفات PDF (يتطلب تثبيت Poppler)
         - جميع المعالجة تتم محلياً على جهازك
+        - البيانات لا يتم حفظها أو مشاركتها مع أي طرف خارجي
         """)
 
 if __name__ == "__main__":
