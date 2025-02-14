@@ -127,26 +127,23 @@ def detect_and_blur_faces(image):
         
         # كشف الوجوه باستخدام MediaPipe
         with mp_face_detection.FaceDetection(
-            model_selection=1,  # نموذج كامل للدقة العالية
-            min_detection_confidence=0.75  # دقة عالية مع مرونة معقولة
+            model_selection=1,
+            min_detection_confidence=0.65  # تقليل الحساسية قليلاً
         ) as face_detector:
             # محاولة الكشف على الصورة الأصلية والمحسنة
             results = face_detector.process(img_array)
             if not results.detections:
                 results = face_detector.process(enhanced)
                 if not results.detections:
-                    st.warning(TRANSLATIONS['ar']['no_faces'])
-                    return image
+                    return image  # إرجاع الصورة الأصلية بدون رسالة
 
             faces_detected = 0
             
             # معالجة كل وجه تم اكتشافه
             for detection in results.detections:
-                # التحقق من نسبة الثقة
-                if detection.score[0] < 0.75:
+                if detection.score[0] < 0.65:
                     continue
                 
-                # استخراج إحداثيات الوجه
                 bbox = detection.location_data.relative_bounding_box
                 x = int(bbox.xmin * width)
                 y = int(bbox.ymin * height)
@@ -160,7 +157,7 @@ def detect_and_blur_faces(image):
                 # حساب مركز ونصف قطر الدائرة
                 center_x = x + w // 2
                 center_y = y + h // 2
-                radius = int(max(w, h) * 0.7)  # تغطية كاملة للوجه
+                radius = int(max(w, h) * 0.7)
                 
                 # إنشاء قناع دائري
                 mask = np.zeros((height, width), dtype=np.uint8)
@@ -192,15 +189,17 @@ def detect_and_blur_faces(image):
                     
                     faces_detected += 1
             
+            # عرض رسالة واحدة فقط بعد اكتمال المعالجة
             if faces_detected > 0:
-                st.success(TRANSLATIONS['ar']['faces_found'].format(faces_detected))
+                st.success(f"✅ تم العثور وتمويه {faces_detected} وجه/وجوه")
+            else:
+                st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
             
             return Image.fromarray(result)
             
     except Exception as e:
         logger.error(f"خطأ في معالجة الصورة: {str(e)}")
-        st.error(TRANSLATIONS['ar']['processing_error'])
-        return image
+        return image  # إرجاع الصورة الأصلية في حالة الخطأ
 
 def blur_faces_simple(image):
     """
@@ -210,7 +209,7 @@ def blur_faces_simple(image):
         img_array = np.array(image)
         
         # كشف الوجوه
-        filtered_faces, _ = detect_faces_advanced(image)
+        filtered_faces = detect_faces_advanced(image)
         
         # تمويه كل وجه
         for (x, y, w, h) in filtered_faces:
