@@ -18,6 +18,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# تهيئة التطبيق - يجب أن تكون في بداية الكود
+st.set_page_config(
+    page_title="Face Blur Tool",
+    page_icon="🎭",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
 def check_poppler():
     """
     التحقق من تثبيت Poppler وإظهار معلومات التثبيت
@@ -551,14 +559,6 @@ def remove_overlapping_faces(faces, overlap_thresh=0.3):
 
 def main():
     try:
-        # تهيئة التطبيق
-        st.set_page_config(
-            page_title="Face Blur Tool",
-            page_icon="🎭",
-            layout="wide",
-            initial_sidebar_state="collapsed"
-        )
-
         # تحميل CSS
         load_custom_css()
 
