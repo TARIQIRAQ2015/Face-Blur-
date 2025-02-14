@@ -1,1 +1,6 @@
-poppler-utils 
+poppler-utils
+python3-dev
+cmake
+build-essential
+libpoppler-cpp-dev
+pkg-config 
