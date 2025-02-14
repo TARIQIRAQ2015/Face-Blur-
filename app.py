@@ -7,6 +7,7 @@ import logging
 import subprocess
 import sys
 import os
+import time
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -71,6 +72,37 @@ def blur_faces_simple(image):
         st.error(f"حدث خطأ أثناء معالجة الصورة: {str(e)}")
         return image
 
+@st.cache_data
+def process_pdf_page(pdf_bytes, page_number):
+    """
+    معالجة صفحة واحدة من ملف PDF
+    """
+    try:
+        images = convert_from_bytes(
+            pdf_bytes,
+            first_page=page_number,
+            last_page=page_number,
+            dpi=150,  # تقليل الدقة أكثر للملفات الكبيرة
+            size=(800, None),  # تقليل حجم الصورة
+            thread_count=2  # استخدام المعالجة المتوازية
+        )
+        return images[0] if images else None
+    except Exception as e:
+        logger.error(f"خطأ في معالجة صفحة PDF: {str(e)}")
+        return None
+
+def get_pdf_page_count(pdf_bytes):
+    """
+    الحصول على عدد صفحات ملف PDF
+    """
+    try:
+        from pdf2image.pdf2image import pdfinfo_from_bytes
+        info = pdfinfo_from_bytes(pdf_bytes)
+        return info['Pages']
+    except Exception as e:
+        logger.error(f"خطأ في قراءة معلومات PDF: {str(e)}")
+        return 0
+
 def process_pdf(pdf_bytes):
     """
     معالجة ملف PDF وتحويله إلى صور
@@ -80,8 +112,70 @@ def process_pdf(pdf_bytes):
         return []
         
     try:
-        images = convert_from_bytes(pdf_bytes.getvalue())
-        return images
+        # الحصول على عدد الصفحات
+        total_pages = get_pdf_page_count(pdf_bytes.getvalue())
+        
+        if total_pages == 0:
+            st.error("لم يتم العثور على صفحات في ملف PDF")
+            return []
+            
+        if total_pages > 500:  # زيادة الحد الأقصى إلى 500 صفحة
+            st.warning("⚠️ يمكن معالجة 500 صفحة كحد أقصى. سيتم معالجة أول 500 صفحة فقط.")
+            total_pages = 500
+        
+        st.info(f"🔄 جاري معالجة {total_pages} صفحة...")
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        processed_images = []
+        batch_size = 10  # معالجة الصفحات في مجموعات
+        
+        for batch_start in range(1, total_pages + 1, batch_size):
+            batch_end = min(batch_start + batch_size - 1, total_pages)
+            status_text.text(f"معالجة الصفحات {batch_start} إلى {batch_end}...")
+            
+            for page_num in range(batch_start, batch_end + 1):
+                # تحديث شريط التقدم
+                progress_bar.progress((page_num - 1) / total_pages)
+                
+                # معالجة الصفحة
+                image = process_pdf_page(pdf_bytes.getvalue(), page_num)
+                if image:
+                    processed_images.append(image)
+                    
+                    # عرض الصورة مباشرة بعد معالجتها
+                    st.markdown(f"### صفحة {page_num}")
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.image(image, caption="الصورة الأصلية", use_column_width=True)
+                    
+                    processed_image = blur_faces_simple(image)
+                    
+                    with col2:
+                        st.image(processed_image, caption="الصورة بعد التمويه", use_column_width=True)
+                    
+                    # زر التحميل
+                    buf = io.BytesIO()
+                    processed_image.save(buf, format="PNG")
+                    st.download_button(
+                        f"⬇️ تحميل الصفحة {page_num}",
+                        buf.getvalue(),
+                        f"blurred_page_{page_num}.png",
+                        "image/png"
+                    )
+                
+                # تحرير الذاكرة
+                del image
+                
+            # تحرير الذاكرة بعد كل مجموعة
+            import gc
+            gc.collect()
+        
+        progress_bar.progress(1.0)
+        status_text.text("✅ تمت معالجة جميع الصفحات!")
+        return []  # لا نحتاج لإرجاع الصور لأننا نعرضها مباشرة
+        
     except Exception as e:
         logger.error(f"خطأ في معالجة ملف PDF: {str(e)}")
         st.error(f"حدث خطأ في معالجة ملف PDF: {str(e)}")
