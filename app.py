@@ -5,8 +5,11 @@ import mediapipe as mp
 from pdf2image import convert_from_bytes
 from PIL import Image
 import io
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import logging
+import os
+import sys
+from pathlib import Path
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -30,13 +33,8 @@ class FaceBlurProcessor:
             صورة PIL بعد تمويه الوجوه
         """
         try:
-            # تحويل الصورة إلى نمط RGB
             img = np.array(image)
-            
-            # تحويل الصورة إلى BGR لـ OpenCV
             rgb_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            
-            # كشف الوجوه
             results = self.face_detection.process(cv2.cvtColor(rgb_img, cv2.COLOR_BGR2RGB))
             
             if not results.detections:
@@ -47,20 +45,11 @@ class FaceBlurProcessor:
             
             for detection in results.detections:
                 bbox = detection.location_data.relative_bounding_box
+                x = max(0, int(bbox.xmin * width))
+                y = max(0, int(bbox.ymin * height))
+                w = min(int(bbox.width * width), width - x)
+                h = min(int(bbox.height * height), height - y)
                 
-                # تحويل الإحداثيات النسبية إلى إحداثيات فعلية
-                x = int(bbox.xmin * width)
-                y = int(bbox.ymin * height)
-                w = int(bbox.width * width)
-                h = int(bbox.height * height)
-                
-                # التأكد من أن الإحداثيات ضمن حدود الصورة
-                x = max(0, x)
-                y = max(0, y)
-                w = min(w, width - x)
-                h = min(h, height - y)
-                
-                # تطبيق التمويه على منطقة الوجه
                 face = img[y:y+h, x:x+w]
                 blurred_face = cv2.GaussianBlur(face, self.blur_kernel, self.blur_sigma)
                 img[y:y+h, x:x+w] = blurred_face
@@ -72,33 +61,66 @@ class FaceBlurProcessor:
             logger.error(f"خطأ في معالجة الصورة: {str(e)}")
             raise
 
-def process_pdf(pdf_bytes: io.BytesIO, processor: FaceBlurProcessor) -> List[Image.Image]:
-    """
-    معالجة ملف PDF وتطبيق التمويه على كل صفحة
-    
-    Args:
-        pdf_bytes: ملف PDF كـ BytesIO
-        processor: معالج تمويه الوجوه
-    Returns:
-        قائمة من الصور المعالجة
-    """
+def check_poppler_installation() -> bool:
+    """التحقق من تثبيت Poppler"""
     try:
+        from pdf2image.pdf2image import check_poppler_version
+        check_poppler_version()
+        return True
+    except Exception:
+        return False
+
+def process_pdf(pdf_bytes: io.BytesIO, processor: FaceBlurProcessor) -> List[Image.Image]:
+    """معالجة ملف PDF وتطبيق التمويه على كل صفحة"""
+    try:
+        if not check_poppler_installation():
+            raise RuntimeError(
+                "Poppler غير مثبت. يرجى تثبيت Poppler للتعامل مع ملفات PDF."
+            )
+        
         images = convert_from_bytes(pdf_bytes.read())
         return [processor.blur_faces(img) for img in images]
     except Exception as e:
         logger.error(f"خطأ في معالجة ملف PDF: {str(e)}")
         raise
 
-def main():
+def set_page_config():
+    """إعداد تكوين الصفحة"""
     st.set_page_config(
         page_title="أداة تمويه الوجوه",
         page_icon="👤",
-        layout="wide"
+        layout="wide",
+        initial_sidebar_state="expanded"
     )
-    
+
+def show_header():
+    """عرض رأس الصفحة"""
     st.title("🎭 أداة تمويه الوجوه باستخدام الذكاء الاصطناعي")
+    st.markdown("""
+    <style>
+    .main {
+        padding: 2rem;
+    }
+    .stButton>button {
+        width: 100%;
+        margin-top: 1rem;
+    }
+    .upload-text {
+        text-align: center;
+        padding: 2rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+def main():
+    set_page_config()
+    show_header()
     
     processor = FaceBlurProcessor()
+    
+    # التحقق من تثبيت Poppler
+    if not check_poppler_installation():
+        st.warning("⚠️ تنبيه: Poppler غير مثبت. لن تتمكن من معالجة ملفات PDF.")
     
     with st.container():
         uploaded_file = st.file_uploader(
@@ -113,30 +135,37 @@ def main():
             
             with st.spinner("جاري معالجة الملف..."):
                 if "pdf" in file_type:
+                    if not check_poppler_installation():
+                        st.error("❌ يرجى تثبيت Poppler لمعالجة ملفات PDF")
+                        return
+                    
                     st.write("📄 معالجة ملف PDF...")
                     processed_images = process_pdf(uploaded_file, processor)
+                    
                     for idx, img in enumerate(processed_images, 1):
-                        st.image(img, caption=f"صفحة {idx} بعد المعالجة")
-                        
-                        # زر تحميل لكل صفحة
-                        buf = io.BytesIO()
-                        img.save(buf, format="PNG")
-                        st.download_button(
-                            f"تحميل الصفحة {idx}",
-                            buf.getvalue(),
-                            f"blurred_page_{idx}.png",
-                            "image/png"
-                        )
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.image(img, caption=f"صفحة {idx} بعد المعالجة", use_column_width=True)
+                        with col2:
+                            buf = io.BytesIO()
+                            img.save(buf, format="PNG")
+                            st.download_button(
+                                f"⬇️ تحميل الصفحة {idx}",
+                                buf.getvalue(),
+                                f"blurred_page_{idx}.png",
+                                "image/png",
+                                use_container_width=True
+                            )
                 else:
                     col1, col2 = st.columns(2)
                     
                     with col1:
                         image = Image.open(uploaded_file)
-                        st.image(image, caption="الصورة الأصلية")
+                        st.image(image, caption="الصورة الأصلية", use_column_width=True)
                     
                     with col2:
                         processed_image = processor.blur_faces(image)
-                        st.image(processed_image, caption="الصورة بعد التمويه")
+                        st.image(processed_image, caption="الصورة بعد التمويه", use_column_width=True)
                         
                         buf = io.BytesIO()
                         processed_image.save(buf, format="PNG")
@@ -144,12 +173,22 @@ def main():
                             "⬇️ تحميل الصورة المعدلة",
                             buf.getvalue(),
                             "blurred_image.png",
-                            "image/png"
+                            "image/png",
+                            use_container_width=True
                         )
         
         except Exception as e:
-            st.error(f"حدث خطأ أثناء معالجة الملف: {str(e)}")
+            st.error(f"❌ حدث خطأ أثناء معالجة الملف: {str(e)}")
             logger.error(f"خطأ: {str(e)}")
+            
+    # إضافة معلومات إضافية في نهاية الصفحة
+    with st.expander("ℹ️ معلومات عن الأداة"):
+        st.markdown("""
+        - تستخدم هذه الأداة تقنيات الذكاء الاصطناعي للكشف عن الوجوه وتمويهها تلقائياً
+        - يمكنك معالجة الصور بصيغ JPG, JPEG, PNG
+        - يمكنك أيضاً معالجة ملفات PDF (يتطلب تثبيت Poppler)
+        - جميع المعالجة تتم محلياً على جهازك
+        """)
 
 if __name__ == "__main__":
     main()
