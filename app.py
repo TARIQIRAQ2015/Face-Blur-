@@ -442,7 +442,7 @@ def load_custom_css():
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     """, unsafe_allow_html=True)
 
-# تحديث قاموس الترجمات
+# الترجمات
 TRANSLATIONS = {
     'ar': {
         'title': '🎭 أداة تمويه الوجوه',
@@ -498,22 +498,16 @@ TRANSLATIONS = {
 
 def get_text(key, lang='en'):
     """
-    الحصول على النص المترجم مع معالجة الأخطاء
+    الحصول على النص المترجم
     """
     try:
-        # محاولة الحصول على النص من اللغة المحددة
-        text = TRANSLATIONS.get(lang, {}).get(key)
-        if text is None:
-            # إذا لم يتم العثور على النص، استخدم النص الإنجليزي
-            text = TRANSLATIONS['en'].get(key)
-            if text is None:
-                # إذا لم يتم العثور على النص في اللغة الإنجليزية أيضاً
-                logger.warning(f"Missing translation for key: {key}")
-                return f"[Missing text: {key}]"
-        return text
-    except Exception as e:
-        logger.error(f"Error getting translation: {str(e)}")
-        return f"[Error: {key}]"
+        return TRANSLATIONS[lang][key]
+    except:
+        try:
+            return TRANSLATIONS['en'][key]
+        except:
+            logger.error(f"Missing translation for key: {key}")
+            return key
 
 def remove_overlapping_faces(faces, overlap_thresh=0.3):
     """
