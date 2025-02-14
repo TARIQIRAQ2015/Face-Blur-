@@ -426,36 +426,46 @@ def process_pdf(pdf_bytes):
 def load_css():
     st.markdown("""
     <style>
+    /* تنسيق عام للتطبيق */
+    .stApp {
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+        font-family: 'Tajawal', 'Plus Jakarta Sans', sans-serif;
+    }
+    
     /* إخفاء العناصر غير المرغوبة */
-    #MainMenu, header, footer, .stDeployButton, [data-testid="stToolbar"] {
+    #MainMenu, header, footer, .stDeployButton {
         display: none !important;
     }
     
-    /* الخلفية الرئيسية */
-    .stApp {
-        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
-        margin-top: -4rem;
-    }
-    
-    /* تنسيق العنوان الرئيسي */
+    /* العنوان الرئيسي */
     .main-title {
-        font-family: 'Tajawal', 'Roboto', sans-serif;
-        font-size: 2.5rem;
-        font-weight: 700;
-        text-align: center;
-        padding: 2rem;
-        margin: 2rem 0;
         background: linear-gradient(45deg, #3B82F6, #60A5FA);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+        font-size: 3rem;
+        font-weight: 800;
+        text-align: center;
+        margin: 2rem 0;
+        padding: 1rem;
         text-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
+        animation: glow 2s ease-in-out infinite alternate;
     }
     
-    /* تنسيق منطقة رفع الملفات */
+    /* تأثير التوهج */
+    @keyframes glow {
+        from {
+            text-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+        }
+        to {
+            text-shadow: 0 0 30px rgba(59, 130, 246, 0.8);
+        }
+    }
+    
+    /* منطقة رفع الملفات */
     [data-testid="stFileUploader"] {
         background: rgba(255, 255, 255, 0.05);
         border: 2px dashed rgba(59, 130, 246, 0.3);
-        border-radius: 15px;
+        border-radius: 20px;
         padding: 2rem;
         transition: all 0.3s ease;
     }
@@ -463,7 +473,7 @@ def load_css():
     [data-testid="stFileUploader"]:hover {
         border-color: #3B82F6;
         background: rgba(59, 130, 246, 0.1);
-        box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+        box-shadow: 0 0 30px rgba(59, 130, 246, 0.2);
     }
     
     /* تنسيق الأزرار */
@@ -476,6 +486,8 @@ def load_css():
         font-weight: bold;
         transition: all 0.3s ease;
         box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+        text-transform: uppercase;
+        letter-spacing: 1px;
     }
     
     .stButton button:hover {
@@ -485,7 +497,7 @@ def load_css():
     
     /* تنسيق الصور */
     [data-testid="stImage"] {
-        border-radius: 15px;
+        border-radius: 20px;
         overflow: hidden;
         box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
         transition: all 0.3s ease;
@@ -499,9 +511,10 @@ def load_css():
     .stAlert {
         background: rgba(255, 255, 255, 0.05) !important;
         border: 1px solid rgba(59, 130, 246, 0.2) !important;
-        border-radius: 10px !important;
+        border-radius: 15px !important;
         backdrop-filter: blur(10px);
         color: white !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
     }
     
     /* تنسيق النصوص */
@@ -511,14 +524,16 @@ def load_css():
     
     h1, h2, h3 {
         color: #F8FAFC;
+        font-weight: 700;
     }
     
     /* تنسيق محدد اللغة */
     .stSelectbox [data-testid="stMarkdown"] {
         background: rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
+        border-radius: 15px;
         padding: 0.5rem;
         border: 1px solid rgba(59, 130, 246, 0.2);
+        backdrop-filter: blur(5px);
     }
     
     /* تنسيق شريط التقدم */
@@ -528,16 +543,7 @@ def load_css():
         border-radius: 4px;
     }
     
-    /* تنسيق الأعمدة */
-    [data-testid="column"] {
-        background: rgba(255, 255, 255, 0.02);
-        border-radius: 15px;
-        padding: 1rem;
-        backdrop-filter: blur(5px);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    
-    /* تأثيرات إضافية */
+    /* تأثيرات خلفية */
     .stApp::before {
         content: '';
         position: fixed;
@@ -552,7 +558,22 @@ def load_css():
         z-index: -1;
     }
     
-    /* تنسيق النص باللغة العربية */
+    /* تنسيق الأعمدة */
+    [data-testid="column"] {
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 20px;
+        padding: 1.5rem;
+        backdrop-filter: blur(5px);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        transition: all 0.3s ease;
+    }
+    
+    [data-testid="column"]:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+    
+    /* تنسيق النص العربي */
     .arabic-text {
         direction: rtl;
         text-align: right;
@@ -561,11 +582,11 @@ def load_css():
         color: #E2E8F0;
     }
     
-    /* تنسيق النص باللغة الإنجليزية */
+    /* تنسيق النص الإنجليزي */
     .english-text {
         direction: ltr;
         text-align: left;
-        font-family: 'Roboto', sans-serif;
+        font-family: 'Plus Jakarta Sans', sans-serif;
         line-height: 1.8;
         color: #E2E8F0;
     }
@@ -581,10 +602,20 @@ def load_css():
         );
         margin: 2rem 0;
     }
+    
+    /* تأثيرات التحميل */
+    .stSpinner {
+        border-color: #3B82F6 !important;
+    }
+    
+    /* تنسيق التوضيحات */
+    .stTooltipIcon {
+        color: #3B82F6 !important;
+    }
     </style>
     
     <!-- إضافة الخطوط -->
-    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
     """, unsafe_allow_html=True)
 
 # إضافة الترجمات
