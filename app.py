@@ -1,7 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
-import face_recognition
+import mediapipe as mp
 from pdf2image import convert_from_bytes
 from PIL import Image
 import io
@@ -16,6 +16,9 @@ class FaceBlurProcessor:
     def __init__(self, blur_kernel: Tuple[int, int] = (99, 99), blur_sigma: int = 30):
         self.blur_kernel = blur_kernel
         self.blur_sigma = blur_sigma
+        self.face_detection = mp.solutions.face_detection.FaceDetection(
+            model_selection=1, min_detection_confidence=0.5
+        )
     
     def blur_faces(self, image: Image.Image) -> Image.Image:
         """
@@ -27,21 +30,42 @@ class FaceBlurProcessor:
             صورة PIL بعد تمويه الوجوه
         """
         try:
+            # تحويل الصورة إلى نمط RGB
             img = np.array(image)
-            rgb_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            face_locations = face_recognition.face_locations(rgb_img)
             
-            if not face_locations:
+            # تحويل الصورة إلى BGR لـ OpenCV
+            rgb_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            
+            # كشف الوجوه
+            results = self.face_detection.process(cv2.cvtColor(rgb_img, cv2.COLOR_BGR2RGB))
+            
+            if not results.detections:
                 logger.info("لم يتم العثور على وجوه في الصورة")
                 return image
             
-            logger.info(f"تم العثور على {len(face_locations)} وجه/وجوه")
+            height, width = img.shape[:2]
             
-            for (top, right, bottom, left) in face_locations:
-                face = img[top:bottom, left:right]
+            for detection in results.detections:
+                bbox = detection.location_data.relative_bounding_box
+                
+                # تحويل الإحداثيات النسبية إلى إحداثيات فعلية
+                x = int(bbox.xmin * width)
+                y = int(bbox.ymin * height)
+                w = int(bbox.width * width)
+                h = int(bbox.height * height)
+                
+                # التأكد من أن الإحداثيات ضمن حدود الصورة
+                x = max(0, x)
+                y = max(0, y)
+                w = min(w, width - x)
+                h = min(h, height - y)
+                
+                # تطبيق التمويه على منطقة الوجه
+                face = img[y:y+h, x:x+w]
                 blurred_face = cv2.GaussianBlur(face, self.blur_kernel, self.blur_sigma)
-                img[top:bottom, left:right] = blurred_face
+                img[y:y+h, x:x+w] = blurred_face
             
+            logger.info(f"تم العثور على {len(results.detections)} وجه/وجوه")
             return Image.fromarray(img)
         
         except Exception as e:
