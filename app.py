@@ -618,8 +618,8 @@ def main():
                     
                     with st.spinner(get_text('processing', lang)):
                         process_pdf(uploaded_file, lang)
-                else:
-                    image = Image.open(uploaded_file)
+        else:
+            image = Image.open(uploaded_file)
                     col1, col2 = st.columns(2)
                     
                     with col1:
@@ -634,8 +634,8 @@ def main():
                         st.image(processed_image, use_container_width=True)
                     
                     # زر التحميل
-                    buf = io.BytesIO()
-                    processed_image.save(buf, format="PNG")
+            buf = io.BytesIO()
+            processed_image.save(buf, format="PNG")
                     st.download_button(
                         get_text('download_button', lang),
                         buf.getvalue(),
