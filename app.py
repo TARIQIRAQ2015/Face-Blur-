@@ -1,7 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
-import dlib
+import face_recognition
 from pdf2image import convert_from_bytes
 from PIL import Image
 import io
@@ -169,38 +169,56 @@ def set_luxury_style():
     </style>
     """, unsafe_allow_html=True)
 
-class DlibFaceDetector:
-    def __init__(self):
-        # استخدام HOG وCNN من dlib
-        self.detector = dlib.get_frontal_face_detector()
-    
+class AdvancedFaceDetector:
     def detect_faces(self, image: np.ndarray) -> list:
         faces = []
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        detected_faces = self.detector(gray, 1)
+        # تحويل الصورة إلى RGB لمكتبة face_recognition
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
-        for face in detected_faces:
-            x, y, w, h = (face.left(), face.top(), face.width(), face.height())
-            faces.append({'box': [x, y, w, h]})
+        # كشف الوجوه بأحجام مختلفة
+        face_locations = face_recognition.face_locations(
+            rgb_image,
+            number_of_times_to_upsample=2,  # زيادة للكشف عن الوجوه الصغيرة
+            model="cnn"  # استخدام نموذج CNN للدقة العالية
+        )
+        
+        for face_location in face_locations:
+            top, right, bottom, left = face_location
+            faces.append({
+                'box': [left, top, right - left, bottom - top],
+                'confidence': 1.0
+            })
         
         return faces
 
 class FaceBlurProcessor:
     def __init__(self):
-        self.detector = DlibFaceDetector()
+        self.detector = AdvancedFaceDetector()
     
-    def apply_blur(self, image: np.ndarray, box: list) -> np.ndarray:
+    def apply_strong_blur(self, image: np.ndarray, box: list) -> np.ndarray:
         x, y, w, h = box
+        
+        # توسيع منطقة التمويه
+        padding_x = int(w * 0.1)
+        padding_y = int(h * 0.1)
+        x = max(0, x - padding_x)
+        y = max(0, y - padding_y)
+        w = min(w + 2*padding_x, image.shape[1] - x)
+        h = min(h + 2*padding_y, image.shape[0] - y)
+        
         center = (x + w//2, y + h//2)
         radius = int(max(w, h) * 0.9)
         
+        # إنشاء قناع متدرج للتمويه
         mask = np.zeros(image.shape[:2], dtype=np.float32)
         cv2.circle(mask, center, radius, 1.0, -1)
         mask = cv2.GaussianBlur(mask, (99, 99), 30)
         
+        # تطبيق تمويه قوي متعدد المستويات
         blurred = cv2.GaussianBlur(image, (99, 99), 30)
-        blurred = cv2.GaussianBlur(blurred, (99, 99), 30)
+        blurred = cv2.GaussianBlur(blurred, (99, 99), 30)  # تمويه مضاعف
         
+        # دمج الصور
         mask = np.expand_dims(mask, -1)
         result = image * (1 - mask) + blurred * mask
         
@@ -209,11 +227,16 @@ class FaceBlurProcessor:
     def process_image(self, image: Image.Image) -> tuple:
         try:
             img = np.array(image)
+            
+            # تحسين جودة الصورة
+            img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
+            
+            # كشف الوجوه
             faces = self.detector.detect_faces(img)
             
             if faces:
                 for face in faces:
-                    img = self.apply_blur(img, face['box'])
+                    img = self.apply_strong_blur(img, face['box'])
             
             return Image.fromarray(img), len(faces)
             
