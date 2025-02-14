@@ -173,7 +173,7 @@ def detect_faces_advanced(image):
 
 def blur_faces_advanced(image):
     """
-    تمويه الوجوه بشكل دقيق يتبع شكل الوجه باستخدام MediaPipe
+    تمويه الوجوه بشكل دائري دقيق باستخدام MediaPipe
     """
     try:
         # تحويل الصورة إلى مصفوفة numpy
@@ -183,23 +183,14 @@ def blur_faces_advanced(image):
         # كشف الوجوه باستخدام MediaPipe مع إعدادات دقيقة
         with mp_face_detection.FaceDetection(
             model_selection=1,  # نموذج كامل للدقة العالية
-            min_detection_confidence=0.7  # زيادة الثقة لتجنب الكشف الخاطئ على النصوص
+            min_detection_confidence=0.8  # زيادة الثقة لتجنب الكشف الخاطئ
         ) as face_detection:
-            # تحسين الصورة للكشف
             results = face_detection.process(img_array)
             
             if not results.detections:
-                # محاولة ثانية مع تحسين التباين والإضاءة
+                # محاولة ثانية مع تحسين التباين
                 enhanced = cv2.convertScaleAbs(img_array, alpha=1.3, beta=30)
                 results = face_detection.process(enhanced)
-                
-                if not results.detections:
-                    # محاولة ثالثة مع تقليل الثقة ولكن مع فحوصات إضافية
-                    with mp_face_detection.FaceDetection(
-                        model_selection=1,
-                        min_detection_confidence=0.5
-                    ) as face_detection_low:
-                        results = face_detection_low.process(enhanced)
                 
                 if not results.detections:
                     st.warning(get_text('no_faces', lang))
@@ -209,39 +200,34 @@ def blur_faces_advanced(image):
             mask = Image.new('L', (width, height), 0)
             mask_draw = ImageDraw.Draw(mask)
             
-            detected_faces = []
-            
             # معالجة كل وجه تم اكتشافه
             for detection in results.detections:
                 # التحقق من نسبة الثقة
-                if detection.score[0] < 0.6:  # زيادة عتبة الثقة
+                if detection.score[0] < 0.8:  # تجاهل الكشف غير الدقيق
                     continue
-                    
+                
+                # الحصول على إحداثيات الوجه
                 bbox = detection.location_data.relative_bounding_box
                 x = int(bbox.xmin * width)
                 y = int(bbox.ymin * height)
                 w = int(bbox.width * width)
                 h = int(bbox.height * height)
                 
-                # فحوصات إضافية للتأكد من أنه وجه
-                if w < 20 or h < 20:  # تجاهل الوجوه الصغيرة جداً
-                    continue
-                    
                 # التحقق من نسبة العرض إلى الارتفاع
                 aspect_ratio = w / h
-                if not (0.6 <= aspect_ratio <= 1.4):  # نطاق أضيق للنسبة
+                if not (0.5 <= aspect_ratio <= 2.0):  # تجاهل النسب غير المنطقية
                     continue
                 
-                # حساب مركز ونصف قطر الدائرة
+                # حساب مركز الدائرة
                 center_x = x + w // 2
                 center_y = y + h // 2
                 
-                # تعديل نصف القطر ليغطي الوجه بشكل أفضل
-                radius = int(max(w, h) * 0.7)  # زيادة حجم التمويه
+                # حساب نصف القطر المناسب
+                radius = int(max(w, h) * 0.6)  # تغطية الوجه بشكل كامل
                 
-                # رسم دائرة على القناع مع تدرج ناعم
+                # رسم دائرة متدرجة
                 for r in range(radius - 10, radius + 11):
-                    opacity = int(255 * (1 - abs(r - radius) / 10))  # تدرج أنعم
+                    opacity = int(255 * (1 - abs(r - radius) / 10))
                     if opacity > 0:
                         mask_draw.ellipse(
                             [
@@ -250,14 +236,9 @@ def blur_faces_advanced(image):
                             ],
                             fill=opacity
                         )
-                
-                detected_faces.append((center_x, center_y, radius))
-            
-            if not detected_faces:
-                return image
             
             # تنعيم حواف القناع
-            mask = mask.filter(ImageFilter.GaussianBlur(radius=15))
+            mask = mask.filter(ImageFilter.GaussianBlur(radius=10))
             mask = np.array(mask)
             
             # إنشاء نسخة مموهة من الصورة
@@ -268,8 +249,6 @@ def blur_faces_advanced(image):
             result = img_array * (1 - mask) + blurred * mask
             
             result_image = Image.fromarray(result.astype('uint8'))
-            st.success(get_text('faces_found', lang, len(detected_faces)))
-            
             return result_image
             
     except Exception as e:
