@@ -1,7 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 import io
 import logging
 import subprocess
@@ -9,13 +9,16 @@ import sys
 import os
 import time
 import gc
-from deepface import DeepFace
 import mediapipe as mp
 from PIL import ImageDraw
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# إعداد MediaPipe
+mp_face_detection = mp.solutions.face_detection
+mp_drawing = mp.solutions.drawing_utils
 
 def check_poppler():
     """
@@ -170,70 +173,67 @@ def detect_faces_advanced(image):
 
 def blur_faces_advanced(image):
     """
-    تمويه الوجوه بشكل دقيق يتبع شكل الوجه
+    تمويه الوجوه بشكل دقيق يتبع شكل الوجه باستخدام MediaPipe
     """
     try:
         # تحويل الصورة إلى مصفوفة numpy
         img_array = np.array(image)
         
-        # استخدام MediaPipe للكشف عن الوجوه ومعالمها
-        mp_face_mesh = mp.solutions.face_mesh
-        face_mesh = mp_face_mesh.FaceMesh(
-            static_image_mode=True,
-            max_num_faces=10,
+        # تحويل من RGB إلى BGR لـ MediaPipe
+        image_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+        
+        # كشف الوجوه باستخدام MediaPipe
+        with mp_face_detection.FaceDetection(
+            model_selection=1,  # نموذج كامل للدقة العالية
             min_detection_confidence=0.5
-        )
-        
-        # كشف الوجوه باستخدام DeepFace
-        faces = DeepFace.extract_faces(
-            img_array, 
-            detector_backend='retinaface',
-            enforce_detection=False
-        )
-        
-        if not faces:
-            st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
-            return image
-        
-        # إنشاء نسخة للتعديل
-        result_image = Image.fromarray(img_array)
-        
-        # معالجة كل وجه
-        for face in faces:
-            facial_area = face['facial_area']
-            x = facial_area['x']
-            y = facial_area['y']
-            w = facial_area['w']
-            h = facial_area['h']
+        ) as face_detection:
+            results = face_detection.process(img_array)
             
-            # توسيع منطقة الوجه قليلاً
-            padding = int(min(w, h) * 0.1)
-            x1 = max(0, x - padding)
-            y1 = max(0, y - padding)
-            x2 = min(img_array.shape[1], x + w + padding)
-            y2 = min(img_array.shape[0], y + h + padding)
+            if not results.detections:
+                st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
+                return image
             
-            # إنشاء قناع للوجه
-            mask = Image.new('L', (img_array.shape[1], img_array.shape[0]), 0)
+            # إنشاء قناع للوجوه
+            mask = Image.new('L', image.size, 0)
             mask_draw = ImageDraw.Draw(mask)
             
-            # رسم منطقة الوجه على القناع
-            mask_draw.ellipse([x1, y1, x2, y2], fill=255)
+            height, width = img_array.shape[:2]
+            
+            # معالجة كل وجه تم اكتشافه
+            for detection in results.detections:
+                # الحصول على إحداثيات الوجه
+                bbox = detection.location_data.relative_bounding_box
+                x = int(bbox.xmin * width)
+                y = int(bbox.ymin * height)
+                w = int(bbox.width * width)
+                h = int(bbox.height * height)
+                
+                # توسيع منطقة الوجه قليلاً
+                padding_x = int(w * 0.1)
+                padding_y = int(h * 0.1)
+                x1 = max(0, x - padding_x)
+                y1 = max(0, y - padding_y)
+                x2 = min(width, x + w + padding_x)
+                y2 = min(height, y + h + padding_y)
+                
+                # رسم منطقة الوجه على القناع
+                mask_draw.ellipse([x1, y1, x2, y2], fill=255)
             
             # تنعيم حواف القناع
             mask = mask.filter(ImageFilter.GaussianBlur(radius=10))
+            mask = np.array(mask)
             
-            # تمويه منطقة الوجه
-            face_region = img_array[y1:y2, x1:x2]
-            blurred_face = cv2.GaussianBlur(face_region, (99, 99), 30)
+            # إنشاء نسخة مموهة من الصورة
+            blurred = cv2.GaussianBlur(img_array, (99, 99), 30)
             
-            # دمج الوجه الممموه مع الصورة الأصلية
-            img_array[y1:y2, x1:x2] = blurred_face
-        
-        result_image = Image.fromarray(img_array)
-        st.success(f"✅ تم العثور على {len(faces)} وجه/وجوه")
-        return result_image
-        
+            # دمج الصورة الأصلية مع المموهة باستخدام القناع
+            mask = mask[:, :, np.newaxis] / 255.0
+            result = img_array * (1 - mask) + blurred * mask
+            
+            result_image = Image.fromarray(result.astype('uint8'))
+            st.success(f"✅ تم العثور على {len(results.detections)} وجه/وجوه")
+            return result_image
+            
     except Exception as e:
         logger.error(f"خطأ في معالجة الصورة: {str(e)}")
         st.error(f"حدث خطأ أثناء معالجة الصورة: {str(e)}")
