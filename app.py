@@ -5,46 +5,127 @@ import face_recognition
 from pdf2image import convert_from_bytes
 from PIL import Image
 import io
+from typing import List, Tuple
+import logging
 
-def blur_faces(image):
-    img = np.array(image)
-    rgb_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    face_locations = face_recognition.face_locations(rgb_img)
-    
-    for (top, right, bottom, left) in face_locations:
-        face = img[top:bottom, left:right]
-        blurred_face = cv2.GaussianBlur(face, (99, 99), 30)
-        img[top:bottom, left:right] = blurred_face
-    
-    return Image.fromarray(img)
+# إعداد التسجيل
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def process_pdf(pdf_bytes):
-    images = convert_from_bytes(pdf_bytes.read())
-    processed_images = [blur_faces(img) for img in images]
-    return processed_images
+class FaceBlurProcessor:
+    def __init__(self, blur_kernel: Tuple[int, int] = (99, 99), blur_sigma: int = 30):
+        self.blur_kernel = blur_kernel
+        self.blur_sigma = blur_sigma
+    
+    def blur_faces(self, image: Image.Image) -> Image.Image:
+        """
+        تطبيق التمويه على الوجوه في الصورة
+        
+        Args:
+            image: صورة PIL
+        Returns:
+            صورة PIL بعد تمويه الوجوه
+        """
+        try:
+            img = np.array(image)
+            rgb_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            face_locations = face_recognition.face_locations(rgb_img)
+            
+            if not face_locations:
+                logger.info("لم يتم العثور على وجوه في الصورة")
+                return image
+            
+            logger.info(f"تم العثور على {len(face_locations)} وجه/وجوه")
+            
+            for (top, right, bottom, left) in face_locations:
+                face = img[top:bottom, left:right]
+                blurred_face = cv2.GaussianBlur(face, self.blur_kernel, self.blur_sigma)
+                img[top:bottom, left:right] = blurred_face
+            
+            return Image.fromarray(img)
+        
+        except Exception as e:
+            logger.error(f"خطأ في معالجة الصورة: {str(e)}")
+            raise
+
+def process_pdf(pdf_bytes: io.BytesIO, processor: FaceBlurProcessor) -> List[Image.Image]:
+    """
+    معالجة ملف PDF وتطبيق التمويه على كل صفحة
+    
+    Args:
+        pdf_bytes: ملف PDF كـ BytesIO
+        processor: معالج تمويه الوجوه
+    Returns:
+        قائمة من الصور المعالجة
+    """
+    try:
+        images = convert_from_bytes(pdf_bytes.read())
+        return [processor.blur_faces(img) for img in images]
+    except Exception as e:
+        logger.error(f"خطأ في معالجة ملف PDF: {str(e)}")
+        raise
 
 def main():
-    st.title("أداة تمويه الوجوه باستخدام الذكاء الاصطناعي")
+    st.set_page_config(
+        page_title="أداة تمويه الوجوه",
+        page_icon="👤",
+        layout="wide"
+    )
     
-    uploaded_file = st.file_uploader("ارفع صورة أو ملف PDF", type=["jpg", "jpeg", "png", "pdf"])
+    st.title("🎭 أداة تمويه الوجوه باستخدام الذكاء الاصطناعي")
+    
+    processor = FaceBlurProcessor()
+    
+    with st.container():
+        uploaded_file = st.file_uploader(
+            "ارفع صورة أو ملف PDF",
+            type=["jpg", "jpeg", "png", "pdf"],
+            help="يمكنك رفع ملفات بصيغة JPG, JPEG, PNG أو PDF"
+        )
     
     if uploaded_file is not None:
-        file_type = uploaded_file.type
-        
-        if "pdf" in file_type:
-            st.write("📄 معالجة ملف PDF...")
-            processed_images = process_pdf(uploaded_file)
-            for img in processed_images:
-                st.image(img, caption="صورة معالجة من PDF")
-        else:
-            image = Image.open(uploaded_file)
-            st.image(image, caption="الصورة الأصلية")
-            processed_image = blur_faces(image)
-            st.image(processed_image, caption="الصورة بعد التمويه")
+        try:
+            file_type = uploaded_file.type
             
-            buf = io.BytesIO()
-            processed_image.save(buf, format="PNG")
-            st.download_button("تحميل الصورة المعدلة", buf.getvalue(), "blurred_image.png", "image/png")
+            with st.spinner("جاري معالجة الملف..."):
+                if "pdf" in file_type:
+                    st.write("📄 معالجة ملف PDF...")
+                    processed_images = process_pdf(uploaded_file, processor)
+                    for idx, img in enumerate(processed_images, 1):
+                        st.image(img, caption=f"صفحة {idx} بعد المعالجة")
+                        
+                        # زر تحميل لكل صفحة
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        st.download_button(
+                            f"تحميل الصفحة {idx}",
+                            buf.getvalue(),
+                            f"blurred_page_{idx}.png",
+                            "image/png"
+                        )
+                else:
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        image = Image.open(uploaded_file)
+                        st.image(image, caption="الصورة الأصلية")
+                    
+                    with col2:
+                        processed_image = processor.blur_faces(image)
+                        st.image(processed_image, caption="الصورة بعد التمويه")
+                        
+                        buf = io.BytesIO()
+                        processed_image.save(buf, format="PNG")
+                        st.download_button(
+                            "⬇️ تحميل الصورة المعدلة",
+                            buf.getvalue(),
+                            "blurred_image.png",
+                            "image/png"
+                        )
+        
+        except Exception as e:
+            st.error(f"حدث خطأ أثناء معالجة الملف: {str(e)}")
+            logger.error(f"خطأ: {str(e)}")
 
 if __name__ == "__main__":
     main()
