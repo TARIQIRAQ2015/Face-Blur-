@@ -696,88 +696,85 @@ def process_image(image):
 def main():
     try:
         load_css()
-        configure_page()
         
-        # العنوان الرئيسي والترجمة في صف واحد
-        st.markdown('<div class="main-title">🎭 أداة تمويه الوجوه / Face Blur Tool</div>', unsafe_allow_html=True)
+        # العنوان الرئيسي
+        st.markdown('<div class="main-title">🎭 أداة تمويه الوجوه</div>', unsafe_allow_html=True)
         
-        # محدد اللغة في وسط الصفحة
-        col1, col2, col3 = st.columns([1, 1, 1])
+        # محدد اللغة
+        col1, col2, col3 = st.columns([1,1,1])
         with col2:
             lang = st.selectbox(
                 "🌐",
                 ['ar', 'en'],
                 format_func=lambda x: 'العربية' if x == 'ar' else 'English',
-                label_visibility="collapsed",
-                key="language-selector"
+                label_visibility="collapsed"
             )
         
         st.markdown("---")
         
-        # تطبيق اتجاه النص حسب اللغة
-        text_class = 'arabic-text' if lang == 'ar' else 'english-text'
-        
         # منطقة رفع الملفات
         uploaded_file = st.file_uploader(
-            get_text('upload_button', lang),
-            type=["jpg", "jpeg", "png", "pdf"],
-            help=get_text('upload_help', lang)
+            TRANSLATIONS[lang]['upload_button'],
+            type=['jpg', 'jpeg', 'png', 'pdf'],
+            help=TRANSLATIONS[lang]['upload_help']
         )
         
         if uploaded_file is not None:
             try:
                 file_extension = uploaded_file.name.lower().split('.')[-1]
                 
-                if file_extension == 'pdf':
-                    if not PDF_SUPPORT:
-                        st.error(get_text('pdf_not_available', lang))
-                        return
-                    
-                    process_pdf(uploaded_file)
-                else:
+                if file_extension in ['jpg', 'jpeg', 'png']:
+                    # معالجة الصورة
                     image = Image.open(uploaded_file)
+                    
+                    # عرض الصور في عمودين
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.markdown(f'<p class="{text_class}">{get_text("original_image", lang)}</p>', unsafe_allow_html=True)
-                        st.image(image, use_container_width=True)
-                    
-                    with st.spinner(get_text('processing', lang)):
-                        processed_image = detect_and_blur_faces(image)
+                        st.markdown(f'<p class="section-title">{TRANSLATIONS[lang]["original_image"]}</p>', unsafe_allow_html=True)
+                        st.image(image, use_column_width=True)
                     
                     with col2:
-                        st.markdown(f'<p class="{text_class}">{get_text("processed_image", lang)}</p>', unsafe_allow_html=True)
-                        st.image(processed_image, use_container_width=True)
+                        st.markdown(f'<p class="section-title">{TRANSLATIONS[lang]["processed_image"]}</p>', unsafe_allow_html=True)
+                        processed_image = detect_and_blur_faces(image)
+                        st.image(processed_image, use_column_width=True)
+                        
+                        # زر التحميل
+                        if processed_image is not None:
+                            buf = io.BytesIO()
+                            processed_image.save(buf, format="PNG")
+                            st.download_button(
+                                TRANSLATIONS[lang]['download_button'],
+                                buf.getvalue(),
+                                "blurred_image.png",
+                                "image/png"
+                            )
+                
+                elif file_extension == 'pdf' and PDF_SUPPORT:
+                    process_pdf(uploaded_file)
                     
-                    # زر التحميل
-                    buf = io.BytesIO()
-                    processed_image.save(buf, format="PNG")
-                    st.download_button(
-                        get_text('download_button', lang),
-                        buf.getvalue(),
-                        "blurred_image.png",
-                        "image/png"
-                    )
+                else:
+                    st.error(TRANSLATIONS[lang]['format_error'])
                     
             except Exception as e:
                 logger.error(f"Error processing file: {str(e)}")
-                st.error(get_text('processing_error', lang))
+                st.error(TRANSLATIONS[lang]['processing_error'])
         
         # الملاحظات
         st.markdown("---")
         st.markdown(f"""
-        <div class="{text_class}">
-            <h3>{get_text('notes', lang)}</h3>
+        <div class="notes-section">
+            <h3>{TRANSLATIONS[lang]['notes']}</h3>
             <ul>
-                <li>{get_text('note_formats', lang)}</li>
-                {f'<li>{get_text("note_pdf", lang)}</li>' if PDF_SUPPORT else ''}
+                <li>{TRANSLATIONS[lang]['note_formats']}</li>
+                {f'<li>{TRANSLATIONS[lang]["note_pdf"]}</li>' if PDF_SUPPORT else ''}
             </ul>
         </div>
         """, unsafe_allow_html=True)
         
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
-        st.error(get_text('app_error', lang))
+        st.error(TRANSLATIONS[lang]['app_error'])
 
 if __name__ == "__main__":
     main()
