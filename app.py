@@ -313,167 +313,68 @@ def process_pdf(pdf_bytes):
 def load_css():
     st.markdown("""
     <style>
-    /* إخفاء الأزرار العلوية */
-    .stDeployButton, [data-testid="stToolbar"], .reportview-container .main footer, header {
+    /* إخفاء العناصر غير المرغوبة */
+    #MainMenu, header, footer, .stDeployButton, [data-testid="stToolbar"] {
         display: none !important;
     }
     
-    /* إخفاء القائمة العلوية */
-    #MainMenu, header, footer {
-        visibility: hidden;
-    }
-    
-    /* إخفاء الهامبرغر منيو */
-    .st-emotion-cache-1rs6os.ef3psqc12 {
-        display: none;
-    }
-    
-    /* إخفاء زر المشاركة وغيره */
-    .st-emotion-cache-zq5wmm.ezrtsby0 {
-        display: none;
-    }
-    
-    /* إخفاء أي عناصر إضافية في الهيدر */
-    [data-testid="stHeader"] {
-        display: none !important;
-    }
-    
-    /* تحسين مظهر التطبيق */
+    /* الخلفية الرئيسية */
     .stApp {
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
         margin-top: -4rem;
     }
     
     /* تنسيق العنوان الرئيسي */
     .main-title {
-        font-size: 2.2rem;
+        font-family: 'Tajawal', 'Roboto', sans-serif;
+        font-size: 2.5rem;
         font-weight: 700;
         text-align: center;
-        padding: 1rem;
+        padding: 2rem;
         margin: 2rem 0;
-        background: linear-gradient(45deg, #2196F3, #00BCD4);
+        background: linear-gradient(45deg, #3B82F6, #60A5FA);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        border-radius: 10px;
-    }
-    
-    /* تنسيق محدد اللغة */
-    .language-selector {
-        width: 120px;
-        margin: 0 auto;
-    }
-    
-    /* التنسيق العام */
-    [data-testid="stAppViewContainer"] {
-        background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
-        color: #ffffff;
-    }
-    
-    /* تنسيق الشريط الجانبي */
-    [data-testid="stSidebar"] {
-        background: rgba(30, 30, 46, 0.9);
-        backdrop-filter: blur(10px);
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
+        text-shadow: 0 0 30px rgba(59, 130, 246, 0.5);
     }
     
     /* تنسيق منطقة رفع الملفات */
-    .upload-area {
+    [data-testid="stFileUploader"] {
         background: rgba(255, 255, 255, 0.05);
-        border: 2px dashed rgba(255, 255, 255, 0.2);
+        border: 2px dashed rgba(59, 130, 246, 0.3);
         border-radius: 15px;
         padding: 2rem;
-        text-align: center;
         transition: all 0.3s ease;
-        margin: 1rem 0;
     }
     
-    .upload-area:hover {
-        border-color: #2196F3;
-        background: rgba(33, 150, 243, 0.1);
-    }
-    
-    /* تنسيق شريط التمرير */
-    [data-testid="stSlider"] > div > div {
-        background: linear-gradient(90deg, #2196F3, #00BCD4);
+    [data-testid="stFileUploader"]:hover {
+        border-color: #3B82F6;
+        background: rgba(59, 130, 246, 0.1);
+        box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
     }
     
     /* تنسيق الأزرار */
     .stButton button {
-        background: linear-gradient(45deg, #2196F3, #00BCD4);
-        border-radius: 50px;
-        padding: 0.5rem 2rem;
+        background: linear-gradient(45deg, #3B82F6, #60A5FA);
         border: none;
+        border-radius: 50px;
+        padding: 0.75rem 2rem;
         color: white;
         font-weight: bold;
         transition: all 0.3s ease;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
     }
     
     .stButton button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(33, 150, 243, 0.3);
-    }
-    
-    /* تنسيق التنبيهات */
-    .stAlert {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border: none;
-        border-radius: 10px;
-        color: white;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-    
-    /* تنسيق النصوص */
-    .text-container {
-        background: rgba(255, 255, 255, 0.05);
-        padding: 1.5rem;
-        border-radius: 10px;
-        margin: 1rem 0;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    /* تنسيق العناوين */
-    h1 {
-        background: linear-gradient(45deg, #2196F3, #00BCD4);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 2.5rem;
-        margin-bottom: 2rem;
-        text-align: center;
-    }
-    
-    h2, h3, h4 {
-        color: #ffffff;
-        margin: 1rem 0;
-    }
-    
-    /* تنسيق القوائم */
-    ul {
-        list-style-type: none;
-        padding-left: 0;
-    }
-    
-    ul li {
-        margin: 0.5rem 0;
-        padding-left: 1.5rem;
-        position: relative;
-    }
-    
-    ul li:before {
-        content: "•";
-        color: #2196F3;
-        font-size: 1.5rem;
-        position: absolute;
-        left: 0;
-        top: -0.2rem;
+        box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
     }
     
     /* تنسيق الصور */
     [data-testid="stImage"] {
         border-radius: 15px;
         overflow: hidden;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
         transition: all 0.3s ease;
     }
     
@@ -481,11 +382,61 @@ def load_css():
         transform: scale(1.02);
     }
     
+    /* تنسيق التنبيهات */
+    .stAlert {
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(59, 130, 246, 0.2) !important;
+        border-radius: 10px !important;
+        backdrop-filter: blur(10px);
+        color: white !important;
+    }
+    
+    /* تنسيق النصوص */
+    .stMarkdown {
+        color: #E2E8F0;
+    }
+    
+    h1, h2, h3 {
+        color: #F8FAFC;
+    }
+    
+    /* تنسيق محدد اللغة */
+    .stSelectbox [data-testid="stMarkdown"] {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        padding: 0.5rem;
+        border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+    
     /* تنسيق شريط التقدم */
     .stProgress > div > div {
-        background: linear-gradient(90deg, #2196F3, #00BCD4);
-        height: 10px;
-        border-radius: 5px;
+        background: linear-gradient(90deg, #3B82F6, #60A5FA);
+        height: 8px;
+        border-radius: 4px;
+    }
+    
+    /* تنسيق الأعمدة */
+    [data-testid="column"] {
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 15px;
+        padding: 1rem;
+        backdrop-filter: blur(5px);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    /* تأثيرات إضافية */
+    .stApp::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: 
+            radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.15) 0%, transparent 40%),
+            radial-gradient(circle at 80% 80%, rgba(96, 165, 250, 0.15) 0%, transparent 40%);
+        pointer-events: none;
+        z-index: -1;
     }
     
     /* تنسيق النص باللغة العربية */
@@ -493,7 +444,8 @@ def load_css():
         direction: rtl;
         text-align: right;
         font-family: 'Tajawal', sans-serif;
-        line-height: 1.6;
+        line-height: 1.8;
+        color: #E2E8F0;
     }
     
     /* تنسيق النص باللغة الإنجليزية */
@@ -501,7 +453,20 @@ def load_css():
         direction: ltr;
         text-align: left;
         font-family: 'Roboto', sans-serif;
-        line-height: 1.6;
+        line-height: 1.8;
+        color: #E2E8F0;
+    }
+    
+    /* تنسيق الفواصل */
+    hr {
+        border: none;
+        height: 1px;
+        background: linear-gradient(90deg, 
+            transparent 0%, 
+            rgba(59, 130, 246, 0.3) 50%, 
+            transparent 100%
+        );
+        margin: 2rem 0;
     }
     </style>
     
