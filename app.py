@@ -110,117 +110,40 @@ def configure_page():
     except Exception as e:
         logger.error(f"خطأ في تهيئة الصفحة: {str(e)}")
 
-def detect_faces_advanced(image):
+def detect_and_blur_faces(image):
     """
-    كشف الوجوه باستخدام خوارزميات متعددة مع تحسين الدقة
-    """
-    try:
-        img_array = np.array(image)
-        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-        
-        # تحميل الكواشف الأساسية فقط لتحسين الدقة
-        cascades = {
-            'frontal_default': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'),
-            'frontal_alt2': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'),
-            'profile': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml'),
-        }
-        
-        # تحسين معلمات الكشف
-        scale_factors = [1.1]  # تقليل عدد المحاولات لتحسين الدقة
-        min_neighbors_options = [5]  # زيادة عدد الجيران للتأكد من دقة الكشف
-        
-        all_faces = []
-        confidence_threshold = 50  # عتبة الثقة للكشف
-        
-        # تجربة كل كاشف
-        for cascade_name, cascade in cascades.items():
-            if cascade_name.startswith('frontal'):
-                faces = cascade.detectMultiScale(
-                    gray,
-                    scaleFactor=1.1,
-                    minNeighbors=5,
-                    minSize=(30, 30),  # زيادة الحجم الأدنى
-                    maxSize=(800, 800),
-                    flags=cv2.CASCADE_SCALE_IMAGE
-                )
-                
-                # التحقق من جودة الكشف
-                for (x, y, w, h) in faces:
-                    face_roi = gray[y:y+h, x:x+w]
-                    # حساب متوسط التباين في منطقة الوجه
-                    variance = np.var(face_roi)
-                    if variance > confidence_threshold:
-                        all_faces.append((x, y, w, h))
-            
-            elif cascade_name == 'profile':
-                # كشف الوجوه الجانبية في الاتجاهين
-                for angle in [0, 1]:
-                    temp_gray = cv2.flip(gray, angle) if angle == 1 else gray
-                    faces = cascade.detectMultiScale(
-                        temp_gray,
-                        scaleFactor=1.1,
-                        minNeighbors=7,  # زيادة للتأكد من دقة الكشف
-                        minSize=(30, 30),
-                        maxSize=(800, 800)
-                    )
-                    
-                    # التحقق من الوجوه الجانبية
-                    for face in faces:
-                        x, y, w, h = face
-                        if angle == 1:
-                            x = temp_gray.shape[1] - x - w
-                        face_roi = gray[y:y+h, x:x+w]
-                        variance = np.var(face_roi)
-                        if variance > confidence_threshold:
-                            all_faces.append((x, y, w, h))
-        
-        # إزالة التداخلات وتصفية النتائج
-        filtered_faces = []
-        if all_faces:
-            # تحويل إلى مصفوفة numpy
-            all_faces = np.array(all_faces)
-            # إزالة الكشف المتكرر
-            filtered_faces = remove_overlapping_faces(all_faces, overlap_thresh=0.3)
-        
-        return filtered_faces, None
-    
-    except Exception as e:
-        logger.error(f"خطأ في كشف الوجوه: {str(e)}")
-        return [], None
-
-def blur_faces_advanced(image):
-    """
-    تمويه الوجوه بشكل دائري نقي مع دقة عالية في الكشف
+    كشف وتمويه الوجوه بشكل دائري نقي
     """
     try:
         # تحويل الصورة إلى مصفوفة numpy
         img_array = np.array(image)
         height, width = img_array.shape[:2]
         
+        # نسخة للنتيجة النهائية
+        result = img_array.copy()
+        
         # تحسين الصورة للكشف
         enhanced = cv2.convertScaleAbs(img_array, alpha=1.2, beta=15)
         
-        # كشف الوجوه باستخدام MediaPipe
+        # كشف الوجوه
         with mp_face_detection.FaceDetection(
             model_selection=1,
-            min_detection_confidence=0.75
+            min_detection_confidence=0.7
         ) as face_detector:
+            # محاولة الكشف على الصورة الأصلية والمحسنة
             results = face_detector.process(img_array)
             if not results.detections:
                 results = face_detector.process(enhanced)
                 if not results.detections:
-                    st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
                     return image
 
-            # إنشاء نسخة للنتيجة النهائية
-            result = img_array.copy()
             faces_detected = 0
             
-            # معالجة كل وجه
+            # معالجة كل وجه تم اكتشافه
             for detection in results.detections:
-                if detection.score[0] < 0.75:
+                if detection.score[0] < 0.7:
                     continue
-                    
+                
                 bbox = detection.location_data.relative_bounding_box
                 x = int(bbox.xmin * width)
                 y = int(bbox.ymin * height)
@@ -230,49 +153,42 @@ def blur_faces_advanced(image):
                 # حساب مركز ونصف قطر الدائرة
                 center_x = x + w // 2
                 center_y = y + h // 2
-                radius = int(max(w, h) * 0.7)  # زيادة حجم الدائرة قليلاً
+                radius = int(max(w, h) * 0.7)
                 
-                # إنشاء قناع دائري للوجه الحالي
+                # إنشاء قناع دائري
                 mask = np.zeros((height, width), dtype=np.uint8)
                 cv2.circle(mask, (center_x, center_y), radius, 255, -1)
                 
                 # تنعيم حواف القناع
                 mask = cv2.GaussianBlur(mask, (21, 21), 11)
                 
-                # تمويه منطقة الوجه
-                face_roi = img_array[
-                    max(0, center_y - radius):min(height, center_y + radius),
-                    max(0, center_x - radius):min(width, center_x + radius)
-                ]
+                # تحديد منطقة الوجه
+                y1 = max(0, center_y - radius)
+                y2 = min(height, center_y + radius)
+                x1 = max(0, center_x - radius)
+                x2 = min(width, center_x + radius)
                 
-                if face_roi.size > 0:  # التأكد من وجود منطقة صالحة
-                    # تمويه قوي للوجه
-                    blurred_roi = cv2.GaussianBlur(face_roi, (99, 99), 30)
+                if y2 > y1 and x2 > x1:
+                    # تمويه منطقة الوجه
+                    face_region = result[y1:y2, x1:x2]
+                    blurred_region = cv2.GaussianBlur(face_region, (99, 99), 30)
                     
-                    # تطبيق القناع على المنطقة المموهة
-                    mask_roi = mask[
-                        max(0, center_y - radius):min(height, center_y + radius),
-                        max(0, center_x - radius):min(width, center_x + radius)
-                    ]
-                    mask_roi = mask_roi[:, :, np.newaxis] / 255.0
+                    # تطبيق القناع
+                    mask_region = mask[y1:y2, x1:x2]
+                    mask_region = mask_region[:, :, np.newaxis] / 255.0
                     
-                    # دمج المنطقة المموهة مع الصورة الأصلية
-                    result[
-                        max(0, center_y - radius):min(height, center_y + radius),
-                        max(0, center_x - radius):min(width, center_x + radius)
-                    ] = face_roi * (1 - mask_roi) + blurred_roi * mask_roi
+                    # دمج المنطقة المموهة
+                    result[y1:y2, x1:x2] = (
+                        face_region * (1 - mask_region) + 
+                        blurred_region * mask_region
+                    )
                     
                     faces_detected += 1
             
-            if faces_detected > 0:
-                st.success(f"✅ تم العثور وتمويه {faces_detected} وجه/وجوه")
-                return Image.fromarray(result)
-            
-            return image
+            return Image.fromarray(result)
             
     except Exception as e:
         logger.error(f"خطأ في معالجة الصورة: {str(e)}")
-        st.error("❌ حدث خطأ أثناء معالجة الصورة")
         return image
 
 def blur_faces_simple(image):
@@ -340,85 +256,62 @@ def get_pdf_page_count(pdf_bytes):
         logger.error(f"خطأ في قراءة معلومات PDF: {str(e)}")
         return 0
 
-def process_pdf(pdf_bytes):
+def process_pdf(pdf_file):
     """
-    معالجة ملف PDF وتحويله إلى صور
+    معالجة ملف PDF وتمويه الوجوه في كل صفحة
     """
-    if not PDF_SUPPORT:
-        st.error(get_text('pdf_not_available', lang))
-        return []
-        
     try:
-        total_pages = get_pdf_page_count(pdf_bytes.getvalue())
-        
-        if total_pages == 0:
-            st.error("لم يتم العثور على صفحات في ملف PDF")
-            return []
+        with st.spinner(get_text('pdf_processing', lang)):
+            # تحويل PDF إلى صور
+            images = convert_from_bytes(pdf_file.read())
             
-        if total_pages > 500:
-            st.warning("⚠️ يمكن معالجة 500 صفحة كحد أقصى. سيتم معالجة أول 500 صفحة فقط.")
-            total_pages = 500
-        
-        st.info(f"🔄 جاري معالجة {total_pages} صفحة...")
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        # قائمة لتخزين جميع الصور المعالجة
-        all_processed_images = []
-        
-        batch_size = 10
-        for batch_start in range(1, total_pages + 1, batch_size):
-            batch_end = min(batch_start + batch_size - 1, total_pages)
-            status_text.text(f"معالجة الصفحات {batch_start} إلى {batch_end}...")
+            # إنشاء قائمة للصور المعالجة
+            processed_images = []
+            total_pages = len(images)
             
-            for page_num in range(batch_start, batch_end + 1):
-                progress_bar.progress((page_num - 1) / total_pages)
+            # إنشاء شريط التقدم
+            progress_bar = st.progress(0)
+            
+            # معالجة كل صفحة
+            for i, image in enumerate(images):
+                # تحديث شريط التقدم
+                progress = (i + 1) / total_pages
+                progress_bar.progress(progress)
                 
-                image = process_pdf_page(pdf_bytes.getvalue(), page_num)
-                if image:
-                    processed_image = blur_faces_simple(image)
-                    all_processed_images.append(processed_image)
-                    
-                    # عرض الصور
-                    st.markdown(f"### صفحة {page_num}")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.image(image, caption="الصورة الأصلية", use_container_width=True)
-                    with col2:
-                        st.image(processed_image, caption="الصورة بعد التمويه", use_container_width=True)
+                # معالجة الصورة باستخدام نفس دالة التمويه الدائري
+                processed_image = detect_and_blur_faces(image)
+                processed_images.append(processed_image)
                 
-                del image
+                # تنظيف الذاكرة
+                gc.collect()
             
-            gc.collect()
-        
-        progress_bar.progress(1.0)
-        status_text.text("✅ تمت معالجة جميع الصفحات!")
-        
-        # إنشاء ملف PDF يحتوي على جميع الصور المعالجة
-        if all_processed_images:
-            pdf_output = io.BytesIO()
-            all_processed_images[0].save(
-                pdf_output,
-                "PDF",
-                save_all=True,
-                append_images=all_processed_images[1:],
-                resolution=150.0,
-                quality=85
-            )
+            # إنشاء ملف PDF جديد
+            output_pdf = io.BytesIO()
+            if processed_images:
+                processed_images[0].save(
+                    output_pdf, 
+                    'PDF',
+                    save_all=True,
+                    append_images=processed_images[1:],
+                    resolution=100.0
+                )
             
+            # إزالة شريط التقدم
+            progress_bar.empty()
+            
+            st.success(get_text('pdf_complete', lang))
+            
+            # زر تحميل الملف المعالج
             st.download_button(
-                "⬇️ تحميل الملف الكامل بعد المعالجة (PDF)",
-                pdf_output.getvalue(),
+                get_text('download_pdf', lang),
+                output_pdf.getvalue(),
                 "processed_document.pdf",
                 "application/pdf"
             )
-        
-        return []
-        
+            
     except Exception as e:
         logger.error(f"خطأ في معالجة ملف PDF: {str(e)}")
-        st.error(f"حدث خطأ في معالجة ملف PDF: {str(e)}")
-        return []
+        st.error(get_text('processing_error', lang))
 
 def load_css():
     st.markdown("""
@@ -720,7 +613,7 @@ def process_image(image):
     """
     try:
         # محاولة الكشف باستخدام النموذج المتقدم
-        result = blur_faces_advanced(image)
+        result = detect_and_blur_faces(image)
         
         # إذا لم يتم العثور على وجوه، نجرب النموذج البسيط
         if result == image:
@@ -771,8 +664,7 @@ def main():
                         st.error(get_text('pdf_not_available', lang))
                         return
                     
-                    with st.spinner(get_text('processing', lang)):
-                        process_pdf(uploaded_file)
+                    process_pdf(uploaded_file)
                 else:
                     image = Image.open(uploaded_file)
                     col1, col2 = st.columns(2)
@@ -782,7 +674,7 @@ def main():
                         st.image(image, use_container_width=True)
                     
                     with st.spinner(get_text('processing', lang)):
-                        processed_image = blur_faces_advanced(image)
+                        processed_image = detect_and_blur_faces(image)
                     
                     with col2:
                         st.markdown(f'<p class="{text_class}">{get_text("processed_image", lang)}</p>', unsafe_allow_html=True)
