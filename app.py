@@ -309,7 +309,7 @@ def process_pdf(pdf_bytes):
     معالجة ملف PDF وتحويله إلى صور
     """
     if not PDF_SUPPORT:
-        st.error("عذراً، دعم ملفات PDF غير متوفر حالياً")
+        st.error(get_text('pdf_not_available', lang))
         return []
         
     try:
@@ -566,6 +566,9 @@ TRANSLATIONS = {
         'notes': '📝 ملاحظات',
         'note_formats': 'يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF',
         'note_pdf': 'معالجة ملفات PDF قد تستغرق بعض الوقت حسب عدد الصفحات',
+        'processing_error': '❌ حدث خطأ أثناء معالجة الملف',
+        'pdf_not_available': '❌ عذراً، دعم ملفات PDF غير متوفر حالياً',
+        'app_error': '❌ حدث خطأ في التطبيق. يرجى المحاولة مرة أخرى'
     },
     'en': {
         'title': '🎭 Face Blur Tool',
@@ -583,6 +586,9 @@ TRANSLATIONS = {
         'notes': '📝 Notes',
         'note_formats': 'You can upload JPG, JPEG, PNG images or PDF files',
         'note_pdf': 'Processing PDF files may take some time depending on the number of pages',
+        'processing_error': '❌ Error processing file',
+        'pdf_not_available': '❌ Sorry, PDF support is currently not available',
+        'app_error': '❌ Application error occurred. Please try again'
     }
 }
 
