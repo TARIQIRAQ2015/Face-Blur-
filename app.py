@@ -1,7 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 import io
 import logging
 import subprocess
@@ -9,6 +9,8 @@ import sys
 import os
 import time
 import gc
+import urllib.request
+import bz2
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -87,83 +89,87 @@ def configure_page():
     except Exception as e:
         logger.error(f"خطأ في تهيئة الصفحة: {str(e)}")
 
-def detect_faces_advanced(image):
+def detect_and_blur_face_advanced(image):
     """
-    كشف الوجوه باستخدام خوارزميات متعددة مع تحسين الدقة
+    كشف وتمويه الوجوه بشكل دقيق يتبع شكل الوجه
     """
     try:
+        import dlib
+        import numpy as np
+        from PIL import Image, ImageDraw
+        
+        # تحويل الصورة إلى مصفوفة numpy
         img_array = np.array(image)
-        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         
-        # تحميل الكواشف الأساسية فقط لتحسين الدقة
-        cascades = {
-            'frontal_default': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'),
-            'frontal_alt2': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'),
-            'profile': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml'),
-        }
+        # تهيئة كاشف الوجوه من dlib
+        detector = dlib.get_frontal_face_detector()
+        predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
         
-        # تحسين معلمات الكشف
-        scale_factors = [1.1]  # تقليل عدد المحاولات لتحسين الدقة
-        min_neighbors_options = [5]  # زيادة عدد الجيران للتأكد من دقة الكشف
+        # كشف الوجوه
+        faces = detector(img_array)
         
-        all_faces = []
-        confidence_threshold = 50  # عتبة الثقة للكشف
+        # إنشاء صورة للقناع
+        mask = Image.new('L', image.size, 0)
+        draw = ImageDraw.Draw(mask)
         
-        # تجربة كل كاشف
-        for cascade_name, cascade in cascades.items():
-            if cascade_name.startswith('frontal'):
-                faces = cascade.detectMultiScale(
-                    gray,
-                    scaleFactor=1.1,
-                    minNeighbors=5,
-                    minSize=(30, 30),  # زيادة الحجم الأدنى
-                    maxSize=(800, 800),
-                    flags=cv2.CASCADE_SCALE_IMAGE
-                )
-                
-                # التحقق من جودة الكشف
-                for (x, y, w, h) in faces:
-                    face_roi = gray[y:y+h, x:x+w]
-                    # حساب متوسط التباين في منطقة الوجه
-                    variance = np.var(face_roi)
-                    if variance > confidence_threshold:
-                        all_faces.append((x, y, w, h))
+        face_count = 0
+        
+        for face in faces:
+            # الحصول على معالم الوجه
+            landmarks = predictor(img_array, face)
+            points = []
             
-            elif cascade_name == 'profile':
-                # كشف الوجوه الجانبية في الاتجاهين
-                for angle in [0, 1]:
-                    temp_gray = cv2.flip(gray, angle) if angle == 1 else gray
-                    faces = cascade.detectMultiScale(
-                        temp_gray,
-                        scaleFactor=1.1,
-                        minNeighbors=7,  # زيادة للتأكد من دقة الكشف
-                        minSize=(30, 30),
-                        maxSize=(800, 800)
-                    )
-                    
-                    # التحقق من الوجوه الجانبية
-                    for face in faces:
-                        x, y, w, h = face
-                        if angle == 1:
-                            x = temp_gray.shape[1] - x - w
-                        face_roi = gray[y:y+h, x:x+w]
-                        variance = np.var(face_roi)
-                        if variance > confidence_threshold:
-                            all_faces.append((x, y, w, h))
+            # تجميع نقاط حدود الوجه
+            for n in range(68):
+                x = landmarks.part(n).x
+                y = landmarks.part(n).y
+                points.append((x, y))
+            
+            # رسم قناع للوجه باستخدام النقاط
+            # الجبهة
+            draw.polygon(points[0:17], fill=255)
+            # الحاجب الأيمن
+            draw.polygon(points[17:22], fill=255)
+            # الحاجب الأيسر
+            draw.polygon(points[22:27], fill=255)
+            # الأنف
+            draw.polygon(points[27:36], fill=255)
+            # العين اليمنى
+            draw.polygon(points[36:42], fill=255)
+            # العين اليسرى
+            draw.polygon(points[42:48], fill=255)
+            # الفم الخارجي
+            draw.polygon(points[48:60], fill=255)
+            # الفم الداخلي
+            draw.polygon(points[60:68], fill=255)
+            
+            # توسيع منطقة القناع قليلاً
+            mask = mask.filter(ImageFilter.GaussianBlur(5))
+            mask = Image.fromarray((np.array(mask) > 128).astype(np.uint8) * 255)
+            
+            face_count += 1
         
-        # إزالة التداخلات وتصفية النتائج
-        filtered_faces = []
-        if all_faces:
-            # تحويل إلى مصفوفة numpy
-            all_faces = np.array(all_faces)
-            # إزالة الكشف المتكرر
-            filtered_faces = remove_overlapping_faces(all_faces, overlap_thresh=0.3)
-        
-        return filtered_faces, None
-    
+        if face_count > 0:
+            # تمويه الصورة الكاملة
+            blurred = cv2.GaussianBlur(img_array, (99, 99), 30)
+            
+            # تحويل القناع إلى مصفوفة numpy
+            mask_array = np.array(mask) / 255.0
+            mask_array = np.stack([mask_array] * 3, axis=2)
+            
+            # دمج الصورة الأصلية مع الصورة المموهة باستخدام القناع
+            result = img_array * (1 - mask_array) + blurred * mask_array
+            
+            st.success(f"✅ تم العثور على {face_count} وجه/وجوه")
+            return Image.fromarray(result.astype(np.uint8))
+        else:
+            st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
+            return image
+            
     except Exception as e:
-        logger.error(f"خطأ في كشف الوجوه: {str(e)}")
-        return [], None
+        logger.error(f"خطأ في معالجة الصورة: {str(e)}")
+        st.error(f"حدث خطأ أثناء معالجة الصورة: {str(e)}")
+        return image
 
 def blur_faces_simple(image):
     """
@@ -567,6 +573,22 @@ def remove_overlapping_faces(faces, overlap_thresh=0.3):
     
     return faces[keep].tolist()
 
+def download_face_landmarks():
+    """
+    تحميل ملف معالم الوجه إذا لم يكن موجوداً
+    """
+    dat_file = 'shape_predictor_68_face_landmarks.dat'
+    if not os.path.exists(dat_file):
+        url = "http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2"
+        bz2_file = dat_file + '.bz2'
+        
+        st.info("جاري تحميل ملف معالم الوجه... (قد يستغرق بضع دقائق)")
+        urllib.request.urlretrieve(url, bz2_file)
+        
+        with bz2.BZ2File(bz2_file) as fr, open(dat_file, 'wb') as fw:
+            fw.write(fr.read())
+        os.remove(bz2_file)
+
 def main():
     try:
         load_css()
@@ -618,7 +640,7 @@ def main():
                         st.image(image, use_container_width=True)
                     
                     with st.spinner(get_text('processing', lang)):
-                        processed_image = blur_faces_simple(image)
+                        processed_image = detect_and_blur_face_advanced(image)
                     
                     with col2:
                         st.markdown(f'<p class="{text_class}">{get_text("processed_image", lang)}</p>', unsafe_allow_html=True)
