@@ -56,25 +56,39 @@ def set_page_config():
 
 class AdvancedFaceDetector:
     def __init__(self):
-        # تحسين حساسية الكشف عن الوجوه فقط
+        # تكوين كاشف MediaPipe للوجوه
         self.mp_face = mp.solutions.face_detection.FaceDetection(
             model_selection=1,  # نموذج للمدى البعيد
-            min_detection_confidence=0.2
+            min_detection_confidence=0.15  # حساسية عالية للكشف
         )
         
-        # تهيئة كاشف Haar للوجوه
+        # تكوين كاشف Haar للوجوه
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
     
+    def enhance_image(self, image: np.ndarray) -> np.ndarray:
+        """تحسين جودة الصورة للكشف عن الوجوه"""
+        # تحسين التباين
+        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        cl = clahe.apply(l)
+        enhanced = cv2.merge((cl,a,b))
+        enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+        
+        # تقليل الضوضاء
+        enhanced = cv2.fastNlMeansDenoisingColored(enhanced, None, 10, 10, 7, 21)
+        return enhanced
+
     def detect_faces(self, image: np.ndarray) -> list:
         faces = []
         original_height, original_width = image.shape[:2]
         
-        # تحسين جودة الصورة للكشف
-        enhanced = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
-        enhanced = cv2.convertScaleAbs(enhanced, alpha=1.2, beta=5)
+        # تحسين جودة الصورة
+        enhanced = self.enhance_image(image)
         
         # قائمة المقاييس للكشف عن الوجوه بأحجام مختلفة
-        scales = [1.0, 1.5, 2.0]
+        scales = [0.8, 1.0, 1.5, 2.0]  # إضافة مقياس أصغر للوجوه الكبيرة
         
         for scale in scales:
             current_width = int(original_width * scale)
@@ -104,6 +118,16 @@ class AdvancedFaceDetector:
                     scaled_w = int(w / scale)
                     scaled_h = int(h / scale)
                     
+                    # توسيع منطقة الوجه قليلاً
+                    padding = 0.1  # 10% padding
+                    pad_x = int(scaled_w * padding)
+                    pad_y = int(scaled_h * padding)
+                    
+                    scaled_x = max(0, scaled_x - pad_x)
+                    scaled_y = max(0, scaled_y - pad_y)
+                    scaled_w = min(scaled_w + 2*pad_x, original_width - scaled_x)
+                    scaled_h = min(scaled_h + 2*pad_y, original_height - scaled_y)
+                    
                     faces.append({
                         'box': [scaled_x, scaled_y, scaled_w, scaled_h],
                         'confidence': detection.score[0],
@@ -114,19 +138,38 @@ class AdvancedFaceDetector:
             gray = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
             gray = cv2.equalizeHist(gray)
             
-            detected_faces = self.face_cascade.detectMultiScale(
+            # كشف الوجوه الأمامية
+            front_faces = self.face_cascade.detectMultiScale(
                 gray,
                 scaleFactor=1.05,
                 minNeighbors=3,
                 minSize=(20, 20)
             )
             
-            for (x, y, w, h) in detected_faces:
-                # تحويل الإحداثيات للمقياس الأصلي
+            # كشف الوجوه الجانبية
+            profile_faces = self.profile_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.05,
+                minNeighbors=3,
+                minSize=(20, 20)
+            )
+            
+            # دمج نتائج الكشف
+            for (x, y, w, h) in np.vstack((front_faces, profile_faces)) if len(profile_faces) > 0 else front_faces:
                 scaled_x = int(x / scale)
                 scaled_y = int(y / scale)
                 scaled_w = int(w / scale)
                 scaled_h = int(h / scale)
+                
+                # توسيع منطقة الوجه
+                padding = 0.1
+                pad_x = int(scaled_w * padding)
+                pad_y = int(scaled_h * padding)
+                
+                scaled_x = max(0, scaled_x - pad_x)
+                scaled_y = max(0, scaled_y - pad_y)
+                scaled_w = min(scaled_w + 2*pad_x, original_width - scaled_x)
+                scaled_h = min(scaled_h + 2*pad_y, original_height - scaled_y)
                 
                 faces.append({
                     'box': [scaled_x, scaled_y, scaled_w, scaled_h],
@@ -134,7 +177,6 @@ class AdvancedFaceDetector:
                     'source': 'haar'
                 })
         
-        # دمج وتنقية النتائج
         return self.merge_detections(faces, original_width, original_height)
     
     def merge_detections(self, faces: list, width: int, height: int) -> list:
@@ -192,19 +234,24 @@ class FaceBlurProcessor:
     def apply_strong_blur(self, image: np.ndarray, box: list) -> np.ndarray:
         x, y, w, h = box
         center = (x + w//2, y + h//2)
-        radius = int(max(w, h) * 0.7)  # منطقة تمويه كبيرة
+        radius = int(max(w, h) * 0.7)
         
-        # تمويه قوي جداً
+        # إنشاء قناع متدرج للتمويه
         mask = np.zeros(image.shape[:2], dtype=np.float32)
         cv2.circle(mask, center, radius, 1.0, -1)
-        mask = cv2.GaussianBlur(mask, (99, 99), 30)
         
-        # تطبيق تمويه قوي جداً
-        blurred = cv2.GaussianBlur(image, (99, 99), 30)
-        blurred = cv2.GaussianBlur(blurred, (99, 99), 30)  # تمويه مضاعف
+        # تطبيق تمويه متعدد المستويات
+        blur_levels = [
+            cv2.GaussianBlur(image, (k, k), 0)
+            for k in [51, 99, 151, 201]
+        ]
         
-        mask = np.expand_dims(mask, -1)
-        result = image * (1 - mask) + blurred * mask
+        # دمج مستويات التمويه
+        result = image.copy()
+        for i, blurred in enumerate(blur_levels):
+            weight = cv2.GaussianBlur(mask, (99, 99), 30) * (1 - i/len(blur_levels))
+            weight = np.expand_dims(weight, -1)
+            result = result * (1 - weight) + blurred * weight
         
         return result.astype(np.uint8)
     
