@@ -190,93 +190,85 @@ def detect_faces_advanced(image):
 
 def blur_faces_advanced(image):
     """
-    تمويه الوجوه بشكل دائري احترافي مع دقة عالية في الكشف
+    تمويه الوجوه بشكل دائري نقي مع دقة عالية في الكشف
     """
     try:
         # تحويل الصورة إلى مصفوفة numpy
         img_array = np.array(image)
         height, width = img_array.shape[:2]
         
-        # تحسين الصورة للكشف عن الوجوه
+        # تحسين الصورة للكشف
         enhanced = cv2.convertScaleAbs(img_array, alpha=1.2, beta=15)
         
-        # كشف الوجوه باستخدام MediaPipe بإعدادات عالية الدقة
+        # كشف الوجوه باستخدام MediaPipe
         with mp_face_detection.FaceDetection(
-            model_selection=1,  # استخدام النموذج الكامل للدقة العالية
-            min_detection_confidence=0.75  # دقة عالية مع مرونة معقولة
+            model_selection=1,
+            min_detection_confidence=0.75
         ) as face_detector:
-            # محاولة الكشف على الصورة الأصلية
             results = face_detector.process(img_array)
-            
             if not results.detections:
-                # محاولة ثانية على الصورة المحسنة
                 results = face_detector.process(enhanced)
                 if not results.detections:
                     st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
                     return image
 
-            # إنشاء قناع للتمويه الدائري
-            mask = Image.new('L', (width, height), 0)
-            mask_draw = ImageDraw.Draw(mask)
-            
+            # إنشاء نسخة للنتيجة النهائية
+            result = img_array.copy()
             faces_detected = 0
             
-            # معالجة كل وجه تم اكتشافه
+            # معالجة كل وجه
             for detection in results.detections:
-                # التحقق من نسبة الثقة
-                confidence = detection.score[0]
-                if confidence < 0.75:
+                if detection.score[0] < 0.75:
                     continue
-                
-                # استخراج إحداثيات الوجه
+                    
                 bbox = detection.location_data.relative_bounding_box
                 x = int(bbox.xmin * width)
                 y = int(bbox.ymin * height)
                 w = int(bbox.width * width)
                 h = int(bbox.height * height)
                 
-                # حساب مركز الدائرة ونصف قطرها
+                # حساب مركز ونصف قطر الدائرة
                 center_x = x + w // 2
                 center_y = y + h // 2
-                radius = int(max(w, h) * 0.65)  # تغطية كاملة للوجه
+                radius = int(max(w, h) * 0.7)  # زيادة حجم الدائرة قليلاً
                 
-                # إنشاء تمويه دائري متدرج
-                gradient_steps = 15
-                for i in range(gradient_steps + 1):
-                    r = radius * (1 - (i / gradient_steps) * 0.2)  # تدرج من المركز للخارج
-                    opacity = int(255 * (1 - (i / gradient_steps) ** 2))  # تدرج غير خطي للنعومة
+                # إنشاء قناع دائري للوجه الحالي
+                mask = np.zeros((height, width), dtype=np.uint8)
+                cv2.circle(mask, (center_x, center_y), radius, 255, -1)
+                
+                # تنعيم حواف القناع
+                mask = cv2.GaussianBlur(mask, (21, 21), 11)
+                
+                # تمويه منطقة الوجه
+                face_roi = img_array[
+                    max(0, center_y - radius):min(height, center_y + radius),
+                    max(0, center_x - radius):min(width, center_x + radius)
+                ]
+                
+                if face_roi.size > 0:  # التأكد من وجود منطقة صالحة
+                    # تمويه قوي للوجه
+                    blurred_roi = cv2.GaussianBlur(face_roi, (99, 99), 30)
                     
-                    mask_draw.ellipse(
-                        [
-                            center_x - r, center_y - r,
-                            center_x + r, center_y + r
-                        ],
-                        fill=opacity
-                    )
-                faces_detected += 1
+                    # تطبيق القناع على المنطقة المموهة
+                    mask_roi = mask[
+                        max(0, center_y - radius):min(height, center_y + radius),
+                        max(0, center_x - radius):min(width, center_x + radius)
+                    ]
+                    mask_roi = mask_roi[:, :, np.newaxis] / 255.0
+                    
+                    # دمج المنطقة المموهة مع الصورة الأصلية
+                    result[
+                        max(0, center_y - radius):min(height, center_y + radius),
+                        max(0, center_x - radius):min(width, center_x + radius)
+                    ] = face_roi * (1 - mask_roi) + blurred_roi * mask_roi
+                    
+                    faces_detected += 1
             
-            if faces_detected == 0:
-                return image
-                
-            # تنعيم حواف التمويه
-            mask = mask.filter(ImageFilter.GaussianBlur(radius=radius//20))
-            mask = np.array(mask)
-            
-            # إنشاء نسخة مموهة بشكل قوي
-            blurred = cv2.GaussianBlur(img_array, (99, 99), 30)
-            
-            # دمج الصورة الأصلية مع التمويه باستخدام القناع
-            mask = mask[:, :, np.newaxis] / 255.0
-            result = img_array * (1 - mask) + blurred * mask
-            
-            # تحويل النتيجة إلى صورة PIL
-            result_image = Image.fromarray(result.astype('uint8'))
-            
-            # عرض رسالة نجاح
             if faces_detected > 0:
                 st.success(f"✅ تم العثور وتمويه {faces_detected} وجه/وجوه")
+                return Image.fromarray(result)
             
-            return result_image
+            return image
             
     except Exception as e:
         logger.error(f"خطأ في معالجة الصورة: {str(e)}")
