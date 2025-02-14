@@ -6,8 +6,8 @@ import io
 import logging
 import gc
 from pdf2image import convert_from_bytes
-from PyPDF2 import PdfReader
 import pikepdf
+from pypdf import PdfReader
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +20,15 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# التحقق من دعم PDF
+PDF_SUPPORT = True
+try:
+    from pdf2image import convert_from_bytes
+    from pikepdf import Pdf
+except Exception as e:
+    PDF_SUPPORT = False
+    logger.error(f"PDF support disabled: {str(e)}")
 
 # تحميل التصميم المخصص
 st.markdown("""
