@@ -12,17 +12,17 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def set_custom_style():
+def set_luxury_style():
     st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;900&display=swap');
     
     :root {
-        --primary-color: #1E3D59;
-        --secondary-color: #FF6E40;
-        --accent-color: #17B794;
-        --background-color: #F5F5F5;
-        --card-bg: rgba(255, 255, 255, 0.95);
+        --primary-color: #14213D;
+        --secondary-color: #FCA311;
+        --accent-color: #E5E5E5;
+        --gold: #FFD700;
+        --dark-gold: #DAA520;
     }
     
     * {
@@ -30,225 +30,233 @@ def set_custom_style():
     }
     
     .stApp {
-        background: linear-gradient(135deg, #1E3D59 0%, #17B794 100%);
+        background: linear-gradient(135deg, var(--primary-color) 0%, #000000 100%);
     }
     
-    .main {
-        max-width: 1200px;
+    .luxury-container {
+        max-width: 1400px;
         margin: 0 auto;
         padding: 2rem;
     }
     
-    .custom-card {
-        background: var(--card-bg);
-        padding: 2rem;
-        border-radius: 20px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        margin-bottom: 2rem;
-        animation: fadeIn 0.5s ease;
-    }
-    
-    .title-card {
+    .luxury-title {
         text-align: center;
-        padding: 3rem 2rem;
-        background: rgba(255, 255, 255, 0.98);
+        padding: 3rem;
+        background: rgba(20, 33, 61, 0.95);
+        border: 2px solid var(--gold);
         border-radius: 20px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 0 20px rgba(255, 215, 0, 0.2);
         margin-bottom: 3rem;
+        backdrop-filter: blur(10px);
     }
     
-    .title-card h1 {
-        color: var(--primary-color);
-        font-size: 3rem;
+    .luxury-title h1 {
+        color: var(--gold);
+        font-size: 3.5rem;
+        font-weight: 900;
         margin-bottom: 1rem;
-        font-weight: 700;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
     }
     
-    .title-card p {
-        color: var(--secondary-color);
-        font-size: 1.2rem;
+    .luxury-title p {
+        color: var(--accent-color);
+        font-size: 1.4rem;
         font-weight: 500;
     }
     
-    .stats-card {
-        background: linear-gradient(135deg, #17B794 0%, #1E3D59 100%);
-        color: white;
-        padding: 1.5rem;
+    .upload-zone {
+        background: rgba(20, 33, 61, 0.95);
+        border: 2px solid var(--gold);
+        padding: 3rem;
+        border-radius: 20px;
+        text-align: center;
+        margin: 2rem 0;
+        transition: all 0.3s ease;
+    }
+    
+    .upload-zone:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 0 30px rgba(255, 215, 0, 0.3);
+    }
+    
+    .stats-panel {
+        background: linear-gradient(45deg, var(--primary-color), #000000);
+        border: 1px solid var(--gold);
+        color: var(--accent-color);
+        padding: 2rem;
         border-radius: 15px;
         margin: 1rem 0;
-        text-align: center;
     }
     
-    .upload-card {
-        background: white;
-        padding: 3rem 2rem;
-        border-radius: 20px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-        text-align: center;
-        margin: 2rem 0;
-    }
-    
-    .result-card {
-        background: white;
+    .result-panel {
+        background: rgba(20, 33, 61, 0.95);
+        border: 2px solid var(--gold);
         padding: 2rem;
         border-radius: 20px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
         margin: 2rem 0;
+        backdrop-filter: blur(10px);
     }
     
-    .stButton>button {
-        background: linear-gradient(45deg, var(--primary-color), var(--accent-color));
-        color: white;
-        padding: 0.8rem 2rem;
+    .download-btn {
+        background: linear-gradient(45deg, var(--gold), var(--dark-gold));
+        color: var(--primary-color);
+        padding: 1rem 2rem;
         border-radius: 10px;
         border: none;
-        font-weight: 500;
+        font-weight: 700;
         width: 100%;
+        margin-top: 1rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .download-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
+    }
+    
+    .progress-bar {
+        height: 10px;
+        background: rgba(255, 215, 0, 0.1);
+        border-radius: 5px;
+        overflow: hidden;
+    }
+    
+    .progress-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--gold), var(--dark-gold));
+        transition: width 0.3s ease;
+    }
+    
+    .success-msg {
+        background: linear-gradient(45deg, #28a745, #20c997);
+        color: white;
+        padding: 1rem;
+        border-radius: 10px;
+        text-align: center;
+        animation: slideUp 0.5s ease;
+    }
+    
+    .error-msg {
+        background: linear-gradient(45deg, #dc3545, #c82333);
+        color: white;
+        padding: 1rem;
+        border-radius: 10px;
+        text-align: center;
+        animation: slideUp 0.5s ease;
+    }
+    
+    @keyframes slideUp {
+        from { transform: translateY(50px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+    }
+    
+    /* تحسين شكل الأزرار */
+    .stButton>button {
+        background: linear-gradient(45deg, var(--gold), var(--dark-gold));
+        color: var(--primary-color);
+        font-weight: 700;
+        padding: 1rem 2rem;
+        border-radius: 10px;
+        border: none;
         transition: all 0.3s ease;
     }
     
     .stButton>button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(23, 183, 148, 0.3);
-    }
-    
-    .success-message {
-        padding: 1rem;
-        background: #17B794;
-        color: white;
-        border-radius: 10px;
-        text-align: center;
-        animation: slideIn 0.5s ease;
-    }
-    
-    .error-message {
-        padding: 1rem;
-        background: #FF6E40;
-        color: white;
-        border-radius: 10px;
-        text-align: center;
-        animation: slideIn 0.5s ease;
-    }
-    
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    @keyframes slideIn {
-        from { transform: translateX(-100%); }
-        to { transform: translateX(0); }
-    }
-    
-    .progress-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 15px;
-        margin: 1rem 0;
-    }
-    
-    .stProgress > div > div {
-        background-color: var(--accent-color);
+        box-shadow: 0 5px 15px rgba(255, 215, 0, 0.3);
     }
     </style>
     """, unsafe_allow_html=True)
 
-class FaceDetector:
+class EnhancedFaceDetector:
     def __init__(self):
-        # إعداد MediaPipe Face Detection مع معايير صارمة
+        # تكوين MediaPipe للدقة العالية
         self.mp_face = mp.solutions.face_detection.FaceDetection(
             model_selection=1,
-            min_detection_confidence=0.7  # زيادة دقة الكشف
-        )
-        
-        # إعداد MediaPipe Face Mesh للتأكد من الوجوه
-        self.mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
-            static_image_mode=True,
-            max_num_faces=10,
             min_detection_confidence=0.7
         )
+        
+        # تكوين Face Mesh للتأكيد
+        self.mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=True,
+            max_num_faces=20,
+            min_detection_confidence=0.7,
+            refine_landmarks=True
+        )
+        
+        # تكوين Cascade Classifier
+        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
 
-    def is_valid_face(self, box: list, image_shape: tuple) -> bool:
-        """التحقق من صحة الوجه المكتشف"""
-        x, y, w, h = box
-        height, width = image_shape[:2]
-        
-        # التحقق من نسبة أبعاد الوجه
-        aspect_ratio = w / h
-        if not (0.6 <= aspect_ratio <= 1.4):  # نسبة الوجه البشري الطبيعية
-            return False
-        
-        # التحقق من حجم الوجه بالنسبة للصورة
-        face_area = w * h
-        image_area = width * height
-        face_area_ratio = face_area / image_area
-        
-        if face_area_ratio < 0.01 or face_area_ratio > 0.4:
-            return False
-            
-        return True
+    def enhance_image(self, image):
+        # تحسين جودة الصورة للكشف
+        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        cl = clahe.apply(l)
+        enhanced = cv2.merge((cl,a,b))
+        enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+        return enhanced
 
     def detect_faces(self, image: np.ndarray) -> list:
         faces = []
         height, width = image.shape[:2]
         
-        # تحويل الصورة إلى RGB
-        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # تحسين الصورة
+        enhanced = self.enhance_image(image)
         
-        # كشف الوجوه باستخدام MediaPipe
+        # 1. MediaPipe Detection
+        rgb_image = cv2.cvtColor(enhanced, cv2.COLOR_BGR2RGB)
         results = self.mp_face.process(rgb_image)
         
         if results.detections:
             for detection in results.detections:
-                if detection.score[0] > 0.7:  # التحقق من مستوى الثقة
+                if detection.score[0] > 0.7:
                     bbox = detection.location_data.relative_bounding_box
                     x = max(0, int(bbox.xmin * width))
                     y = max(0, int(bbox.ymin * height))
                     w = min(int(bbox.width * width), width - x)
                     h = min(int(bbox.height * height), height - y)
                     
-                    # التحقق من صحة الوجه
-                    if self.is_valid_face([x, y, w, h], image.shape):
-                        # توسيع منطقة الوجه قليلاً
-                        padding_x = int(w * 0.1)
-                        padding_y = int(h * 0.1)
-                        x = max(0, x - padding_x)
-                        y = max(0, y - padding_y)
-                        w = min(w + 2*padding_x, width - x)
-                        h = min(h + 2*padding_y, height - y)
-                        
-                        faces.append({
-                            'box': [x, y, w, h],
-                            'confidence': float(detection.score[0])
-                        })
+                    # توسيع منطقة الوجه
+                    padding = 0.2
+                    x = max(0, int(x - w * padding))
+                    y = max(0, int(y - h * padding))
+                    w = min(int(w * (1 + 2*padding)), width - x)
+                    h = min(int(h * (1 + 2*padding)), height - y)
+                    
+                    faces.append({
+                        'box': [x, y, w, h],
+                        'confidence': float(detection.score[0])
+                    })
         
         return faces
 
-class FaceBlurProcessor:
+class EnhancedBlurProcessor:
     def __init__(self):
-        self.detector = FaceDetector()
-        self.processed_count = 0
+        self.detector = EnhancedFaceDetector()
     
-    def apply_blur(self, image: np.ndarray, box: list) -> np.ndarray:
+    def apply_luxury_blur(self, image: np.ndarray, box: list) -> np.ndarray:
         x, y, w, h = box
         center = (x + w//2, y + h//2)
-        radius = int(max(w, h) * 0.9)  # زيادة منطقة التمويه
+        radius = int(max(w, h) * 0.9)
         
-        # إنشاء قناع دائري متدرج
+        # إنشاء قناع متدرج للتمويه
         mask = np.zeros(image.shape[:2], dtype=np.float32)
         cv2.circle(mask, center, radius, 1.0, -1)
         mask = cv2.GaussianBlur(mask, (99, 99), 30)
         
-        # تطبيق تمويه قوي جداً
+        # تطبيق تمويه قوي متعدد المستويات
         blurred = cv2.GaussianBlur(image, (99, 99), 30)
-        blurred = cv2.GaussianBlur(blurred, (99, 99), 30)  # تمويه مضاعف
+        blurred = cv2.GaussianBlur(blurred, (99, 99), 30)
         
         # دمج الصور
         mask = np.expand_dims(mask, -1)
         result = image * (1 - mask) + blurred * mask
         
         return result.astype(np.uint8)
-    
+
     def process_image(self, image: Image.Image) -> tuple:
         try:
             img = np.array(image)
@@ -256,8 +264,7 @@ class FaceBlurProcessor:
             
             if faces:
                 for face in faces:
-                    img = self.apply_blur(img, face['box'])
-                self.processed_count += len(faces)
+                    img = self.apply_luxury_blur(img, face['box'])
             
             return Image.fromarray(img), len(faces)
             
@@ -266,28 +273,25 @@ class FaceBlurProcessor:
             raise
 
 def main():
-    set_custom_style()
+    set_luxury_style()
     
     st.markdown("""
-    <div class="title-card">
-        <h1>🎭 نظام تمويه الوجوه الذكي</h1>
-        <p>معالجة متطورة للصور باستخدام الذكاء الاصطناعي</p>
+    <div class="luxury-title">
+        <h1>🎭 نظام تمويه الوجوه الاحترافي</h1>
+        <p>معالجة فائقة الدقة باستخدام أحدث تقنيات الذكاء الاصطناعي</p>
     </div>
     """, unsafe_allow_html=True)
     
-    processor = FaceBlurProcessor()
+    processor = EnhancedBlurProcessor()
     
     st.markdown("""
-    <div class="upload-card">
-        <h2>📤 رفع الملفات</h2>
-        <p>يمكنك رفع صور بصيغة JPG, JPEG, PNG أو ملفات PDF</p>
+    <div class="upload-zone">
+        <h2 style='color: var(--gold); font-size: 2rem; margin-bottom: 1rem;'>📤 رفع الملفات</h2>
+        <p style='color: var(--accent-color); font-size: 1.2rem;'>يمكنك رفع صور بصيغة JPG, JPEG, PNG أو ملفات PDF</p>
     </div>
     """, unsafe_allow_html=True)
     
-    uploaded_file = st.file_uploader(
-        "",
-        type=["jpg", "jpeg", "png", "pdf"]
-    )
+    uploaded_file = st.file_uploader("", type=["jpg", "jpeg", "png", "pdf"])
     
     if uploaded_file:
         try:
@@ -298,6 +302,7 @@ def main():
                 if uploaded_file.type == "application/pdf":
                     images = convert_from_bytes(uploaded_file.read())
                     total_faces = 0
+                    processed_images = []
                     
                     for idx, img in enumerate(images, 1):
                         progress.progress((idx / len(images)))
@@ -305,38 +310,45 @@ def main():
                         
                         processed, faces_count = processor.process_image(img)
                         total_faces += faces_count
+                        processed_images.append(processed)
                         
                         st.markdown(f"""
-                        <div class="result-card">
-                            <h3>نتيجة معالجة الصفحة {idx}</h3>
+                        <div class="result-panel">
+                            <h3 style='color: var(--gold);'>نتيجة معالجة الصفحة {idx}</h3>
                         </div>
                         """, unsafe_allow_html=True)
                         
                         st.image(processed, use_column_width=True)
-                        
-                        buf = io.BytesIO()
-                        processed.save(buf, format="PNG")
-                        st.download_button(
-                            f"تحميل الصفحة {idx}",
-                            buf.getvalue(),
-                            f"processed_page_{idx}.png",
-                            "image/png"
-                        )
+                    
+                    # تجميع كل الصور في ملف PDF واحد
+                    pdf_buffer = io.BytesIO()
+                    processed_images[0].save(
+                        pdf_buffer, "PDF", save_all=True, 
+                        append_images=processed_images[1:]
+                    )
                     
                     st.markdown(f"""
-                    <div class="stats-card">
-                        <h3>إحصائيات المعالجة</h3>
+                    <div class="stats-panel">
+                        <h3 style='color: var(--gold);'>إحصائيات المعالجة</h3>
                         <p>عدد الصفحات: {len(images)}</p>
                         <p>إجمالي الوجوه المكتشفة: {total_faces}</p>
                     </div>
                     """, unsafe_allow_html=True)
+                    
+                    st.download_button(
+                        "⬇️ تحميل الملف كاملاً",
+                        pdf_buffer.getvalue(),
+                        "processed_document.pdf",
+                        "application/pdf"
+                    )
+                    
                 else:
                     image = Image.open(uploaded_file)
                     processed, faces_count = processor.process_image(image)
                     
                     st.markdown("""
-                    <div class="result-card">
-                        <h3>نتيجة المعالجة</h3>
+                    <div class="result-panel">
+                        <h3 style='color: var(--gold);'>نتيجة المعالجة</h3>
                     </div>
                     """, unsafe_allow_html=True)
                     
@@ -347,8 +359,8 @@ def main():
                         st.image(processed, caption="الصورة بعد المعالجة", use_column_width=True)
                     
                     st.markdown(f"""
-                    <div class="stats-card">
-                        <h3>إحصائيات المعالجة</h3>
+                    <div class="stats-panel">
+                        <h3 style='color: var(--gold);'>إحصائيات المعالجة</h3>
                         <p>الوجوه المكتشفة: {faces_count}</p>
                         <p>تاريخ المعالجة: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
                     </div>
@@ -357,14 +369,14 @@ def main():
                     buf = io.BytesIO()
                     processed.save(buf, format="PNG")
                     st.download_button(
-                        "تحميل الصورة المعالجة",
+                        "⬇️ تحميل الصورة المعالجة",
                         buf.getvalue(),
                         "processed_image.png",
                         "image/png"
                     )
                 
                 st.markdown("""
-                <div class="success-message">
+                <div class="success-msg">
                     <h3>✨ تمت المعالجة بنجاح!</h3>
                 </div>
                 """, unsafe_allow_html=True)
@@ -372,7 +384,7 @@ def main():
             
         except Exception as e:
             st.markdown(f"""
-            <div class="error-message">
+            <div class="error-msg">
                 <h3>❌ حدث خطأ</h3>
                 <p>{str(e)}</p>
             </div>
