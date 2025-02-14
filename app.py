@@ -241,26 +241,26 @@ def get_pdf_page_count(pdf_bytes):
         logger.error(f"خطأ في قراءة معلومات PDF: {str(e)}")
         return 0
 
-def process_pdf(pdf_bytes):
+def process_pdf(pdf_bytes, lang):
     """
     معالجة ملف PDF وتحويله إلى صور
     """
     if not PDF_SUPPORT:
-        st.error("عذراً، دعم ملفات PDF غير متوفر حالياً")
+        st.error(get_text('pdf_not_supported', lang))
         return []
         
     try:
         total_pages = get_pdf_page_count(pdf_bytes.getvalue())
         
         if total_pages == 0:
-            st.error("لم يتم العثور على صفحات في ملف PDF")
+            st.error(get_text('no_pages', lang))
             return []
             
         if total_pages > 500:
-            st.warning("⚠️ يمكن معالجة 500 صفحة كحد أقصى. سيتم معالجة أول 500 صفحة فقط.")
+            st.warning(get_text('page_limit_warning', lang))
             total_pages = 500
         
-        st.info(f"🔄 جاري معالجة {total_pages} صفحة...")
+        st.info(get_text('pdf_processing', lang).format(total_pages))
         progress_bar = st.progress(0)
         status_text = st.empty()
         
@@ -277,6 +277,7 @@ def process_pdf(pdf_bytes):
                 
                 image = process_pdf_page(pdf_bytes.getvalue(), page_num)
                 if image:
+                    # استخدام نفس دالة التمويه الدائري
                     processed_image = blur_faces_simple(image)
                     all_processed_images.append(processed_image)
                     
@@ -284,20 +285,21 @@ def process_pdf(pdf_bytes):
                     st.markdown(f"### صفحة {page_num}")
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.image(image, caption="الصورة الأصلية", use_container_width=True)
+                        st.image(image, caption=get_text('original_image', lang), use_container_width=True)
                     with col2:
-                        st.image(processed_image, caption="الصورة بعد التمويه", use_container_width=True)
+                        st.image(processed_image, caption=get_text('processed_image', lang), use_container_width=True)
                 
                 del image
             
             gc.collect()
         
         progress_bar.progress(1.0)
-        status_text.text("✅ تمت معالجة جميع الصفحات!")
+        status_text.text(get_text('pdf_complete', lang))
         
-        # إنشاء ملف PDF يحتوي على جميع الصور المعالجة
+        # إنشاء ملف PDF من الصور المعالجة
         if all_processed_images:
             pdf_output = io.BytesIO()
+            # حفظ الصور كملف PDF
             all_processed_images[0].save(
                 pdf_output,
                 "PDF",
@@ -307,8 +309,9 @@ def process_pdf(pdf_bytes):
                 quality=85
             )
             
+            # زر تحميل الملف الكامل
             st.download_button(
-                "⬇️ تحميل الملف الكامل بعد المعالجة (PDF)",
+                get_text('download_pdf', lang),
                 pdf_output.getvalue(),
                 "processed_document.pdf",
                 "application/pdf"
@@ -318,7 +321,7 @@ def process_pdf(pdf_bytes):
         
     except Exception as e:
         logger.error(f"خطأ في معالجة ملف PDF: {str(e)}")
-        st.error(f"حدث خطأ في معالجة ملف PDF: {str(e)}")
+        st.error(get_text('pdf_processing_error', lang))
         return []
 
 def load_css():
@@ -493,6 +496,9 @@ TRANSLATIONS = {
         'notes': '📝 ملاحظات',
         'note_formats': 'يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF',
         'note_pdf': 'معالجة ملفات PDF قد تستغرق بعض الوقت حسب عدد الصفحات',
+        'pdf_not_supported': 'عذراً، دعم ملفات PDF غير متوفر حالياً',
+        'no_pages': 'لم يتم العثور على صفحات في ملف PDF',
+        'page_limit_warning': '⚠️ يمكن معالجة 500 صفحة كحد أقصى. سيتم معالجة أول 500 صفحة فقط.',
     },
     'en': {
         'title': '🎭 Face Blur Tool',
@@ -510,6 +516,9 @@ TRANSLATIONS = {
         'notes': '📝 Notes',
         'note_formats': 'You can upload JPG, JPEG, PNG images or PDF files',
         'note_pdf': 'Processing PDF files may take some time depending on the number of pages',
+        'pdf_not_supported': 'Sorry, PDF support is not available currently',
+        'no_pages': 'No pages found in the PDF',
+        'page_limit_warning': '⚠️ Maximum 500 pages can be processed. Only the first 500 pages will be processed.',
     }
 }
 
@@ -604,11 +613,11 @@ def main():
                 
                 if file_extension == 'pdf':
                     if not PDF_SUPPORT:
-                        st.error(get_text('pdf_not_available', lang))
+                        st.error(get_text('pdf_not_supported', lang))
                         return
                     
                     with st.spinner(get_text('processing', lang)):
-                        process_pdf(uploaded_file)
+                        process_pdf(uploaded_file, lang)
                 else:
                     image = Image.open(uploaded_file)
                     col1, col2 = st.columns(2)
