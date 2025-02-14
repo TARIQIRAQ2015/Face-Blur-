@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 import io
 import logging
+from pdf2image import convert_from_bytes
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +49,18 @@ def blur_faces_simple(image):
         st.error(f"حدث خطأ أثناء معالجة الصورة: {str(e)}")
         return image
 
+def process_pdf(pdf_bytes):
+    """
+    معالجة ملف PDF وتحويله إلى صور
+    """
+    try:
+        images = convert_from_bytes(pdf_bytes.getvalue())
+        return images
+    except Exception as e:
+        logger.error(f"خطأ في معالجة ملف PDF: {str(e)}")
+        st.error(f"حدث خطأ في معالجة ملف PDF: {str(e)}")
+        return []
+
 def main():
     try:
         configure_page()
@@ -60,37 +73,65 @@ def main():
         
         # رفع الملف
         uploaded_file = st.file_uploader(
-            "📤 ارفع صورة",
-            type=["jpg", "jpeg", "png"],
-            help="يمكنك رفع صور بصيغ JPG, JPEG, PNG"
+            "📤 ارفع صورة أو ملف PDF",
+            type=["jpg", "jpeg", "png", "pdf"],
+            help="يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF"
         )
         
         if uploaded_file is not None:
             try:
-                # عرض الصورة الأصلية
-                image = Image.open(uploaded_file)
-                col1, col2 = st.columns(2)
+                file_type = uploaded_file.type
                 
-                with col1:
-                    st.image(image, caption="الصورة الأصلية")
-                
-                # معالجة الصورة
-                with st.spinner("جاري معالجة الصورة..."):
-                    processed_image = blur_faces_simple(image)
-                
-                # عرض الصورة المعالجة
-                with col2:
-                    st.image(processed_image, caption="الصورة بعد التمويه")
-                
-                # زر التحميل
-                buf = io.BytesIO()
-                processed_image.save(buf, format="PNG")
-                st.download_button(
-                    "⬇️ تحميل الصورة المعدلة",
-                    buf.getvalue(),
-                    "blurred_image.png",
-                    "image/png"
-                )
+                if "pdf" in file_type:
+                    with st.spinner("جاري معالجة ملف PDF..."):
+                        pdf_images = process_pdf(uploaded_file)
+                        
+                        if pdf_images:
+                            for idx, image in enumerate(pdf_images):
+                                st.markdown(f"### صفحة {idx + 1}")
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.image(image, caption="الصورة الأصلية")
+                                
+                                processed_image = blur_faces_simple(image)
+                                
+                                with col2:
+                                    st.image(processed_image, caption="الصورة بعد التمويه")
+                                
+                                buf = io.BytesIO()
+                                processed_image.save(buf, format="PNG")
+                                st.download_button(
+                                    f"⬇️ تحميل الصفحة {idx + 1}",
+                                    buf.getvalue(),
+                                    f"blurred_page_{idx + 1}.png",
+                                    "image/png"
+                                )
+                else:
+                    # عرض الصورة الأصلية
+                    image = Image.open(uploaded_file)
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.image(image, caption="الصورة الأصلية")
+                    
+                    # معالجة الصورة
+                    with st.spinner("جاري معالجة الصورة..."):
+                        processed_image = blur_faces_simple(image)
+                    
+                    # عرض الصورة المعالجة
+                    with col2:
+                        st.image(processed_image, caption="الصورة بعد التمويه")
+                    
+                    # زر التحميل
+                    buf = io.BytesIO()
+                    processed_image.save(buf, format="PNG")
+                    st.download_button(
+                        "⬇️ تحميل الصورة المعدلة",
+                        buf.getvalue(),
+                        "blurred_image.png",
+                        "image/png"
+                    )
                 
             except Exception as e:
                 logger.error(f"خطأ في معالجة الملف: {str(e)}")
@@ -99,8 +140,9 @@ def main():
         st.markdown("---")
         st.markdown("""
         ### 📝 ملاحظات:
-        - يمكنك رفع صور بصيغ JPG, JPEG, PNG
+        - يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF
         - استخدم شريط التمرير للتحكم في شدة التمويه
+        - معالجة ملفات PDF قد تستغرق بعض الوقت حسب عدد الصفحات
         """)
         
     except Exception as e:
