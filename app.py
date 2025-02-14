@@ -149,7 +149,7 @@ def detect_faces_advanced(image):
         logger.error(f"خطأ في كشف الوجوه: {str(e)}")
         return [], None
 
-def blur_faces_simple(image, blur_intensity=99):
+def blur_faces_simple(image):
     """
     تمويه الوجوه بشكل دقيق يتناسب مع حدود الوجه
     """
@@ -171,23 +171,10 @@ def blur_faces_simple(image, blur_intensity=99):
             x2 = min(img_array.shape[1], x + w + padding)
             y2 = min(img_array.shape[0], y + h + padding)
             
-            # تمويه منطقة الوجه
+            # تمويه منطقة الوجه بقيمة ثابتة
             face_roi = img_array[y1:y2, x1:x2]
-            kernel_size = int(blur_intensity // 2) * 2 + 1  # ضمان أن يكون الرقم فردياً
-            blurred_face = cv2.GaussianBlur(face_roi, (kernel_size, kernel_size), 30)
+            blurred_face = cv2.GaussianBlur(face_roi, (99, 99), 30)
             img_array[y1:y2, x1:x2] = blurred_face
-            
-            # محاولة كشف وتمويه العيون بشكل إضافي
-            if eye_cascade is not None:
-                eyes = eye_cascade.detectMultiScale(
-                    cv2.cvtColor(img_array[y:y+h, x:x+w], cv2.COLOR_RGB2GRAY),
-                    scaleFactor=1.1,
-                    minNeighbors=4
-                )
-                for (ex, ey, ew, eh) in eyes:
-                    eye_roi = img_array[y+ey:y+ey+eh, x+ex:x+ex+ew]
-                    blurred_eye = cv2.GaussianBlur(eye_roi, (51, 51), 15)
-                    img_array[y+ey:y+ey+eh, x+ex:x+ex+ew] = blurred_eye
         
         if not filtered_faces:
             st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
@@ -500,7 +487,6 @@ TRANSLATIONS = {
         'title': '🎭 أداة تمويه الوجوه',
         'upload_button': '📤 ارفع صورة أو ملف PDF',
         'upload_help': 'يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF',
-        'blur_intensity': 'شدة التمويه',
         'processing': 'جاري المعالجة...',
         'original_image': 'الصورة الأصلية',
         'processed_image': 'الصورة بعد التمويه',
@@ -511,20 +497,13 @@ TRANSLATIONS = {
         'pdf_complete': '✅ تمت معالجة جميع الصفحات!',
         'download_pdf': '⬇️ تحميل الملف الكامل بعد المعالجة (PDF)',
         'notes': '📝 ملاحظات',
-        'pdf_not_supported': '⚠️ دعم ملفات PDF غير متوفر',
-        'pdf_not_available': 'عذراً، دعم ملفات PDF غير متوفر حالياً',
         'note_formats': 'يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF',
-        'note_slider': 'استخدم شريط التمرير للتحكم في شدة التمويه',
         'note_pdf': 'معالجة ملفات PDF قد تستغرق بعض الوقت حسب عدد الصفحات',
-        'about_title': 'معلومات عن التطبيق',
-        'about_text': 'هذا التطبيق يوفر خدمة تمويه الوجوه بطريقة دقيقة وفعالة. يمكنك استخدامه لتحسين خصائص الصور، سواء كانت صورة أو ملف PDF. يتميز التطبيق بقدرته على التعامل مع جميع أنواع الصور والملفات المختلفة، مما يجعله مفيدًا بشكل خاص لمستخدمين الصور والمصورين.',
-        'app_error': 'حدث خطأ في التطبيق، يرجى المحاولة لاحقًا',
     },
     'en': {
         'title': '🎭 Face Blur Tool',
         'upload_button': '📤 Upload Image or PDF',
         'upload_help': 'You can upload JPG, JPEG, PNG images or PDF files',
-        'blur_intensity': 'Blur Intensity',
         'processing': 'Processing...',
         'original_image': 'Original Image',
         'processed_image': 'Processed Image',
@@ -535,14 +514,8 @@ TRANSLATIONS = {
         'pdf_complete': '✅ All pages processed!',
         'download_pdf': '⬇️ Download Complete Processed File (PDF)',
         'notes': '📝 Notes',
-        'pdf_not_supported': '⚠️ PDF support not available',
-        'pdf_not_available': 'Sorry, PDF support is not available currently',
         'note_formats': 'You can upload JPG, JPEG, PNG images or PDF files',
-        'note_slider': 'Use the slider to control the blur intensity',
         'note_pdf': 'Processing PDF files may take some time depending on the number of pages',
-        'about_title': 'About the App',
-        'about_text': 'This app provides a precise and efficient face blurring service. You can use it to enhance your images, whether they are photos or PDF files. The app is versatile and can handle all types of images and files, making it especially useful for image and photo enthusiasts.',
-        'app_error': 'Application error, please try again later',
     }
 }
 
@@ -560,13 +533,7 @@ def main():
         load_css()
         configure_page()
         
-        # اختيار اللغة في الشريط الجانبي مع تنسيق خاص
-        st.sidebar.markdown("""
-        <div class="language-selector">
-            <h3 style="text-align: center; margin-bottom: 1rem;">🌐</h3>
-        </div>
-        """, unsafe_allow_html=True)
-        
+        # اختيار اللغة
         lang = st.sidebar.selectbox(
             "Language / اللغة",
             ['ar', 'en'],
@@ -580,28 +547,7 @@ def main():
         st.markdown(f'<h1 class="{text_class}">{get_text("title", lang)}</h1>', unsafe_allow_html=True)
         st.markdown("---")
         
-        # رسالة دعم PDF
-        if not PDF_SUPPORT:
-            st.warning(get_text('pdf_not_supported', lang))
-        
-        # إعدادات التمويه
-        with st.container():
-            st.markdown(f'<div class="{text_class}">', unsafe_allow_html=True)
-            blur_intensity = st.slider(
-                get_text('blur_intensity', lang),
-                25, 199, 99, step=2
-            )
-            st.markdown('</div>', unsafe_allow_html=True)
-        
         # منطقة رفع الملفات
-        st.markdown(f"""
-        <div class="{text_class} upload-area">
-            <p style="text-align: center; margin-bottom: 1rem;">
-                {get_text('upload_help', lang)}
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
         uploaded_file = st.file_uploader(
             get_text('upload_button', lang),
             type=["jpg", "jpeg", "png", "pdf"],
@@ -628,7 +574,7 @@ def main():
                         st.image(image, use_container_width=True)
                     
                     with st.spinner(get_text('processing', lang)):
-                        processed_image = blur_faces_simple(image, blur_intensity)
+                        processed_image = blur_faces_simple(image)
                     
                     with col2:
                         st.markdown(f'<p class="{text_class}">{get_text("processed_image", lang)}</p>', unsafe_allow_html=True)
@@ -655,20 +601,10 @@ def main():
             <h3>{get_text('notes', lang)}</h3>
             <ul>
                 <li>{get_text('note_formats', lang)}</li>
-                <li>{get_text('note_slider', lang)}</li>
                 {f'<li>{get_text("note_pdf", lang)}</li>' if PDF_SUPPORT else ''}
             </ul>
         </div>
         """, unsafe_allow_html=True)
-        
-        # معلومات إضافية في الشريط الجانبي
-        with st.sidebar:
-            st.markdown(f"""
-            <div class="{text_class}" style="margin-top: 2rem;">
-                <h4>{get_text('about_title', lang)}</h4>
-                <p>{get_text('about_text', lang)}</p>
-            </div>
-            """, unsafe_allow_html=True)
         
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
