@@ -464,10 +464,7 @@ TRANSLATIONS = {
         'page_limit_warning': '⚠️ سيتم معالجة أول 500 صفحة فقط',
         'pdf_processing_error': 'حدث خطأ في معالجة الملف',
         'processing_error': 'حدث خطأ أثناء المعالجة',
-        'app_error': 'حدث خطأ في التطبيق',
-        'loading': 'جاري التحميل...',
-        'success': 'تمت العملية بنجاح',
-        'error': 'حدث خطأ'
+        'app_error': 'حدث خطأ في التطبيق'
     },
     'en': {
         'title': '🎭 Face Blur Tool',
@@ -489,10 +486,7 @@ TRANSLATIONS = {
         'page_limit_warning': '⚠️ Only first 500 pages will be processed',
         'pdf_processing_error': 'Error processing the file',
         'processing_error': 'Error during processing',
-        'app_error': 'Application error occurred',
-        'loading': 'Loading...',
-        'success': 'Operation completed successfully',
-        'error': 'An error occurred'
+        'app_error': 'Application error occurred'
     }
 }
 
@@ -556,85 +550,44 @@ def remove_overlapping_faces(faces, overlap_thresh=0.3):
     return faces[keep].tolist()
 
 def main():
-    """
-    الدالة الرئيسية للتطبيق
-    """
     try:
-        # تحميل التصميم
-        load_custom_css()
-        
-        # إعداد الصفحة
+        # تهيئة التطبيق
         st.set_page_config(
             page_title="Face Blur Tool",
             page_icon="🎭",
             layout="wide",
             initial_sidebar_state="collapsed"
         )
-        
-        # تعيين قيمة افتراضية للغة
-        lang = 'en'
-        
-        try:
-            # اختيار اللغة
-            col1, col2, col3 = st.columns([3, 1, 3])
-            with col2:
-                lang = st.selectbox(
-                    "🌐",
-                    ['ar', 'en'],
-                    format_func=lambda x: 'العربية' if x == 'ar' else 'English',
-                    label_visibility="collapsed"
-                )
-        except:
-            # في حالة حدوث خطأ، استخدام اللغة الافتراضية
-            pass
-        
-        # العنوان الرئيسي
+
+        # تحميل CSS
+        load_custom_css()
+
+        # اختيار اللغة
+        col1, col2, col3 = st.columns([3, 1, 3])
+        with col2:
+            lang = st.selectbox(
+                "🌐",
+                ['ar', 'en'],
+                format_func=lambda x: 'العربية' if x == 'ar' else 'English',
+                label_visibility="collapsed"
+            )
+
+        # العنوان
         st.markdown(f'<div class="main-title">{get_text("title", lang)}</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="subtitle">{get_text("subtitle", lang)}</div>', unsafe_allow_html=True)
-        
+
         # منطقة رفع الملفات
         uploaded_file = st.file_uploader(
             get_text('upload_button', lang),
             type=["jpg", "jpeg", "png", "pdf"],
             help=get_text('upload_help', lang)
         )
-        
+
         if uploaded_file:
-            file_extension = uploaded_file.name.lower().split('.')[-1]
-            
-            if file_extension == 'pdf':
-                process_pdf(uploaded_file.getvalue(), lang)
-            else:
-                try:
-                    image = Image.open(uploaded_file)
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.image(image, caption=get_text('original_image', lang), use_container_width=True)
-                    
-                    with st.spinner(get_text('processing', lang)):
-                        processed_image = blur_faces_simple(image)
-                    
-                    with col2:
-                        st.image(processed_image, caption=get_text('processed_image', lang), use_container_width=True)
-                    
-                    # زر التحميل
-                    buf = io.BytesIO()
-                    processed_image.save(buf, format="PNG", quality=95)
-                    st.download_button(
-                        get_text('download_button', lang),
-                        buf.getvalue(),
-                        "blurred_image.png",
-                        "image/png"
-                    )
-                
-                except Exception as e:
-                    logger.error(f"خطأ في معالجة الصورة: {str(e)}")
-                    st.error(get_text('processing_error', lang))
-    
+            process_uploaded_file(uploaded_file, lang)
+
     except Exception as e:
-        # استخدام اللغة الإنجليزية في حالة الخطأ
-        logger.error(f"خطأ في التطبيق: {str(e)}")
+        logger.error(f"Application error: {str(e)}")
         st.error(get_text('app_error', 'en'))
 
 if __name__ == "__main__":
