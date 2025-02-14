@@ -13,13 +13,37 @@ import time
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# التحقق من وجود Poppler
 def check_poppler():
+    """
+    التحقق من تثبيت Poppler وإظهار معلومات التثبيت
+    """
     try:
         # محاولة تنفيذ أمر pdftoppm للتحقق من وجود Poppler
-        subprocess.run(['pdftoppm', '-v'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return True
+        result = subprocess.run(['pdftoppm', '-v'], 
+                              stdout=subprocess.PIPE, 
+                              stderr=subprocess.PIPE,
+                              text=True)
+        
+        if result.stderr:
+            logger.info(f"Poppler version: {result.stderr.strip()}")
+            return True
+        return False
     except FileNotFoundError:
+        logger.error("Poppler not found in system PATH")
+        # محاولة البحث عن مسار Poppler
+        possible_paths = [
+            '/usr/bin/pdftoppm',
+            '/usr/local/bin/pdftoppm',
+            '/opt/homebrew/bin/pdftoppm'
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                logger.info(f"Found Poppler at: {path}")
+                os.environ['PATH'] = f"{os.path.dirname(path)}:{os.environ.get('PATH', '')}"
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"Error checking Poppler: {str(e)}")
         return False
 
 # التحقق من وجود مكتبة pdf2image و Poppler
@@ -28,10 +52,29 @@ try:
     from pdf2image import convert_from_bytes
     if check_poppler():
         PDF_SUPPORT = True
+        logger.info("PDF support enabled")
     else:
         logger.warning("Poppler غير مثبت في النظام")
-except ImportError:
-    logger.warning("مكتبة pdf2image غير متوفرة")
+        st.warning("""
+        لتمكين دعم ملفات PDF، يجب تثبيت Poppler:
+        
+        على Linux:
+        ```bash
+        sudo apt-get update
+        sudo apt-get install -y poppler-utils
+        ```
+        
+        على macOS:
+        ```bash
+        brew install poppler
+        ```
+        
+        على Windows:
+        قم بتحميل وتثبيت Poppler من:
+        http://blog.alivate.com.au/poppler-windows/
+        """)
+except ImportError as e:
+    logger.warning(f"مكتبة pdf2image غير متوفرة: {str(e)}")
 
 def configure_page():
     try:
@@ -187,6 +230,17 @@ def main():
         
         st.title("🎭 أداة تمويه الوجوه")
         st.markdown("---")
+        
+        if not PDF_SUPPORT:
+            st.warning("""
+            ### ⚠️ دعم ملفات PDF غير متوفر
+            
+            لتمكين دعم ملفات PDF، تأكد من تثبيت المكتبات المطلوبة:
+            1. تثبيت Poppler
+            2. تثبيت مكتبة pdf2image
+            
+            راجع التعليمات في الأعلى للتثبيت.
+            """)
         
         # إعدادات التمويه
         blur_intensity = st.slider("شدة التمويه", 25, 199, 99, step=2)
