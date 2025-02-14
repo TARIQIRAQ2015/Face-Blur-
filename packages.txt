@@ -3,4 +3,6 @@ python3-dev
 cmake
 build-essential
 libpoppler-cpp-dev
-pkg-config 
+pkg-config
+libsm6
+libxext6 
