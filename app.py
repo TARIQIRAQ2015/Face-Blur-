@@ -183,15 +183,24 @@ def blur_faces_advanced(image):
         # كشف الوجوه باستخدام MediaPipe مع إعدادات دقيقة
         with mp_face_detection.FaceDetection(
             model_selection=1,  # نموذج كامل للدقة العالية
-            min_detection_confidence=0.3  # تقليل عتبة الثقة لالتقاط المزيد من الوجوه
+            min_detection_confidence=0.5  # زيادة الثقة لتجنب الكشف الخاطئ
         ) as face_detection:
             # تحسين الصورة للكشف
             results = face_detection.process(img_array)
             
             if not results.detections:
-                # محاولة ثانية مع تحسين الإضاءة
-                enhanced = cv2.convertScaleAbs(img_array, alpha=1.2, beta=10)
+                # محاولة ثانية مع تحسين التباين
+                enhanced = cv2.convertScaleAbs(img_array, alpha=1.3, beta=20)
                 results = face_detection.process(enhanced)
+                
+                # إذا لم يتم العثور على وجوه، نجرب تقليل الثقة
+                if not results.detections:
+                    with mp_face_detection.FaceDetection(
+                        model_selection=1,
+                        min_detection_confidence=0.3
+                    ) as face_detection_low:
+                        results = face_detection_low.process(enhanced)
+                
                 if not results.detections:
                     st.warning(get_text('no_faces', lang))
                     return image
@@ -201,32 +210,49 @@ def blur_faces_advanced(image):
             mask_draw = ImageDraw.Draw(mask)
             
             detected_faces = []
+            
             # معالجة كل وجه تم اكتشافه
             for detection in results.detections:
+                # التحقق من نسبة الثقة
+                if detection.score[0] < 0.5:
+                    continue
+                    
                 bbox = detection.location_data.relative_bounding_box
                 x = int(bbox.xmin * width)
                 y = int(bbox.ymin * height)
                 w = int(bbox.width * width)
                 h = int(bbox.height * height)
                 
+                # التحقق من نسبة العرض إلى الارتفاع للتأكد من أنه وجه
+                aspect_ratio = w / h
+                if not (0.5 <= aspect_ratio <= 1.5):
+                    continue
+                
                 # حساب مركز ونصف قطر الدائرة
                 center_x = x + w // 2
                 center_y = y + h // 2
-                radius = int(max(w, h) * 0.6)  # تعديل حجم الدائرة ليغطي الوجه بشكل أفضل
                 
-                # رسم دائرة على القناع
-                mask_draw.ellipse(
-                    [
-                        center_x - radius, center_y - radius,
-                        center_x + radius, center_y + radius
-                    ],
-                    fill=255
-                )
+                # تعديل نصف القطر ليكون أكبر قليلاً من الوجه
+                radius = int(max(w, h) * 0.65)
+                
+                # رسم دائرة على القناع مع تدرج حول الحواف
+                for r in range(radius - 5, radius + 6):
+                    opacity = 255 - abs(r - radius) * 25  # تدرج الشفافية
+                    mask_draw.ellipse(
+                        [
+                            center_x - r, center_y - r,
+                            center_x + r, center_y + r
+                        ],
+                        fill=min(255, max(0, opacity))
+                    )
                 
                 detected_faces.append((center_x, center_y, radius))
             
+            if not detected_faces:
+                return image
+            
             # تنعيم حواف القناع
-            mask = mask.filter(ImageFilter.GaussianBlur(radius=radius//10))
+            mask = mask.filter(ImageFilter.GaussianBlur(radius=10))
             mask = np.array(mask)
             
             # إنشاء نسخة مموهة من الصورة كاملة
@@ -239,10 +265,6 @@ def blur_faces_advanced(image):
             result_image = Image.fromarray(result.astype('uint8'))
             st.success(get_text('faces_found', lang, len(detected_faces)))
             
-            # عرض معلومات إضافية عن الوجوه المكتشفة
-            if detected_faces:
-                st.info(f"تم العثور على {len(detected_faces)} وجه/وجوه بأحجام مختلفة")
-                
             return result_image
             
     except Exception as e:
