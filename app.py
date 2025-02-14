@@ -8,6 +8,7 @@ import subprocess
 import sys
 import os
 import time
+import gc
 
 # إعداد التسجيل
 logging.basicConfig(level=logging.INFO)
@@ -88,26 +89,54 @@ def configure_page():
 
 def blur_faces_simple(image):
     """
-    نسخة مبسطة من تمويه الوجوه باستخدام كاشف الوجوه المدمج في OpenCV
+    تمويه الوجوه بشكل دائري يتناسب مع حجم الوجه
     """
     try:
-        # تحويل الصورة إلى مصفوفة numpy
         img_array = np.array(image)
-        
-        # تحويل الصورة إلى رمادي
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         
-        # تحميل كاشف الوجوه
+        # تحميل كواشف الوجوه المختلفة
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
         
-        # كشف الوجوه
-        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+        # كشف الوجوه الأمامية
+        faces = face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(20, 20),  # حجم أصغر للوجوه
+            flags=cv2.CASCADE_SCALE_IMAGE
+        )
+        
+        # كشف الوجوه الجانبية
+        profiles = profile_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(20, 20)
+        )
+        
+        # دمج جميع الوجوه المكتشفة
+        all_faces = list(faces) + list(profiles)
         
         # تمويه كل وجه
-        for (x, y, w, h) in faces:
-            face = img_array[y:y+h, x:x+w]
-            face = cv2.GaussianBlur(face, (99, 99), 30)
-            img_array[y:y+h, x:x+w] = face
+        for (x, y, w, h) in all_faces:
+            # إنشاء قناع دائري
+            mask = np.zeros((h, w), dtype=np.uint8)
+            center = (w//2, h//2)
+            radius = min(w, h)//2
+            cv2.circle(mask, center, radius, 255, -1)
+            
+            # تمويه منطقة الوجه
+            face_roi = img_array[y:y+h, x:x+w]
+            blurred_face = cv2.GaussianBlur(face_roi, (99, 99), 30)
+            
+            # تطبيق القناع الدائري
+            mask_3d = np.stack([mask]*3, axis=2) / 255.0
+            face_roi[:] = blurred_face * mask_3d + face_roi * (1 - mask_3d)
+        
+        if not all_faces:
+            st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
             
         return Image.fromarray(img_array)
     except Exception as e:
@@ -155,14 +184,13 @@ def process_pdf(pdf_bytes):
         return []
         
     try:
-        # الحصول على عدد الصفحات
         total_pages = get_pdf_page_count(pdf_bytes.getvalue())
         
         if total_pages == 0:
             st.error("لم يتم العثور على صفحات في ملف PDF")
             return []
             
-        if total_pages > 500:  # زيادة الحد الأقصى إلى 500 صفحة
+        if total_pages > 500:
             st.warning("⚠️ يمكن معالجة 500 صفحة كحد أقصى. سيتم معالجة أول 500 صفحة فقط.")
             total_pages = 500
         
@@ -170,54 +198,57 @@ def process_pdf(pdf_bytes):
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        processed_images = []
-        batch_size = 10  # معالجة الصفحات في مجموعات
+        # قائمة لتخزين جميع الصور المعالجة
+        all_processed_images = []
         
+        batch_size = 10
         for batch_start in range(1, total_pages + 1, batch_size):
             batch_end = min(batch_start + batch_size - 1, total_pages)
             status_text.text(f"معالجة الصفحات {batch_start} إلى {batch_end}...")
             
             for page_num in range(batch_start, batch_end + 1):
-                # تحديث شريط التقدم
                 progress_bar.progress((page_num - 1) / total_pages)
                 
-                # معالجة الصفحة
                 image = process_pdf_page(pdf_bytes.getvalue(), page_num)
                 if image:
-                    processed_images.append(image)
+                    processed_image = blur_faces_simple(image)
+                    all_processed_images.append(processed_image)
                     
-                    # عرض الصورة مباشرة بعد معالجتها
+                    # عرض الصور
                     st.markdown(f"### صفحة {page_num}")
                     col1, col2 = st.columns(2)
-                    
                     with col1:
-                        st.image(image, caption="الصورة الأصلية", use_column_width=True)
-                    
-                    processed_image = blur_faces_simple(image)
-                    
+                        st.image(image, caption="الصورة الأصلية", use_container_width=True)
                     with col2:
-                        st.image(processed_image, caption="الصورة بعد التمويه", use_column_width=True)
-                    
-                    # زر التحميل
-                    buf = io.BytesIO()
-                    processed_image.save(buf, format="PNG")
-                    st.download_button(
-                        f"⬇️ تحميل الصفحة {page_num}",
-                        buf.getvalue(),
-                        f"blurred_page_{page_num}.png",
-                        "image/png"
-                    )
+                        st.image(processed_image, caption="الصورة بعد التمويه", use_container_width=True)
                 
-                # تحرير الذاكرة
                 del image
-                
-            # تحرير الذاكرة بعد كل مجموعة
-            import gc
+            
             gc.collect()
         
         progress_bar.progress(1.0)
         status_text.text("✅ تمت معالجة جميع الصفحات!")
-        return []  # لا نحتاج لإرجاع الصور لأننا نعرضها مباشرة
+        
+        # إنشاء ملف PDF يحتوي على جميع الصور المعالجة
+        if all_processed_images:
+            pdf_output = io.BytesIO()
+            all_processed_images[0].save(
+                pdf_output,
+                "PDF",
+                save_all=True,
+                append_images=all_processed_images[1:],
+                resolution=150.0,
+                quality=85
+            )
+            
+            st.download_button(
+                "⬇️ تحميل الملف الكامل بعد المعالجة (PDF)",
+                pdf_output.getvalue(),
+                "processed_document.pdf",
+                "application/pdf"
+            )
+        
+        return []
         
     except Exception as e:
         logger.error(f"خطأ في معالجة ملف PDF: {str(e)}")
@@ -234,53 +265,44 @@ def main():
         if not PDF_SUPPORT:
             st.warning("""
             ### ⚠️ دعم ملفات PDF غير متوفر
-            
-            لتمكين دعم ملفات PDF، تأكد من تثبيت المكتبات المطلوبة:
-            1. تثبيت Poppler
-            2. تثبيت مكتبة pdf2image
-            
-            راجع التعليمات في الأعلى للتثبيت.
+            لتمكين دعم ملفات PDF، تأكد من تثبيت المكتبات المطلوبة.
             """)
         
         # إعدادات التمويه
         blur_intensity = st.slider("شدة التمويه", 25, 199, 99, step=2)
         
-        # تحديد أنواع الملفات المدعومة
-        allowed_types = ["jpg", "jpeg", "png", "pdf"]  # إضافة PDF مباشرة
-        
         # رفع الملف
         uploaded_file = st.file_uploader(
             "📤 ارفع صورة أو ملف PDF",
-            type=allowed_types,
+            type=["jpg", "jpeg", "png", "pdf"],
             help="يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF"
         )
         
         if uploaded_file is not None:
             try:
-                # التحقق من نوع الملف بناءً على الامتداد
                 file_extension = uploaded_file.name.lower().split('.')[-1]
                 
                 if file_extension == 'pdf':
                     if not PDF_SUPPORT:
-                        st.error("عذراً، دعم ملفات PDF غير متوفر حالياً. الرجاء تأكد من تثبيت المكتبات المطلوبة.")
+                        st.error("عذراً، دعم ملفات PDF غير متوفر حالياً.")
                         return
-                        
+                    
                     with st.spinner("جاري معالجة ملف PDF..."):
                         process_pdf(uploaded_file)
                 else:
-                    # معالجة الصور العادية
                     image = Image.open(uploaded_file)
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.image(image, caption="الصورة الأصلية")
+                        st.image(image, caption="الصورة الأصلية", use_container_width=True)
                     
                     with st.spinner("جاري معالجة الصورة..."):
                         processed_image = blur_faces_simple(image)
                     
                     with col2:
-                        st.image(processed_image, caption="الصورة بعد التمويه")
+                        st.image(processed_image, caption="الصورة بعد التمويه", use_container_width=True)
                     
+                    # تحميل الصورة المعالجة
                     buf = io.BytesIO()
                     processed_image.save(buf, format="PNG")
                     st.download_button(
@@ -289,7 +311,7 @@ def main():
                         "blurred_image.png",
                         "image/png"
                     )
-                
+            
             except Exception as e:
                 logger.error(f"خطأ في معالجة الملف: {str(e)}")
                 st.error(f"حدث خطأ في معالجة الملف: {str(e)}")
