@@ -442,7 +442,7 @@ def load_custom_css():
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     """, unsafe_allow_html=True)
 
-# إضافة الترجمات
+# تحديث قاموس الترجمات
 TRANSLATIONS = {
     'ar': {
         'title': '🎭 أداة تمويه الوجوه',
@@ -462,7 +462,12 @@ TRANSLATIONS = {
         'pdf_not_supported': 'عذراً، دعم ملفات PDF غير متوفر حالياً',
         'no_pages': 'لم يتم العثور على صفحات في الملف',
         'page_limit_warning': '⚠️ سيتم معالجة أول 500 صفحة فقط',
-        'pdf_processing_error': 'حدث خطأ في معالجة الملف'
+        'pdf_processing_error': 'حدث خطأ في معالجة الملف',
+        'processing_error': 'حدث خطأ أثناء المعالجة',
+        'app_error': 'حدث خطأ في التطبيق',
+        'loading': 'جاري التحميل...',
+        'success': 'تمت العملية بنجاح',
+        'error': 'حدث خطأ'
     },
     'en': {
         'title': '🎭 Face Blur Tool',
@@ -482,7 +487,12 @@ TRANSLATIONS = {
         'pdf_not_supported': 'PDF support is not available',
         'no_pages': 'No pages found in the file',
         'page_limit_warning': '⚠️ Only first 500 pages will be processed',
-        'pdf_processing_error': 'Error processing the file'
+        'pdf_processing_error': 'Error processing the file',
+        'processing_error': 'Error during processing',
+        'app_error': 'Application error occurred',
+        'loading': 'Loading...',
+        'success': 'Operation completed successfully',
+        'error': 'An error occurred'
     }
 }
 
@@ -491,9 +501,19 @@ def get_text(key, lang='en'):
     الحصول على النص المترجم مع معالجة الأخطاء
     """
     try:
-        return TRANSLATIONS.get(lang, TRANSLATIONS['en']).get(key, TRANSLATIONS['en'][key])
-    except:
-        return TRANSLATIONS['en'].get(key, 'Error: Text not found')
+        # محاولة الحصول على النص من اللغة المحددة
+        text = TRANSLATIONS.get(lang, {}).get(key)
+        if text is None:
+            # إذا لم يتم العثور على النص، استخدم النص الإنجليزي
+            text = TRANSLATIONS['en'].get(key)
+            if text is None:
+                # إذا لم يتم العثور على النص في اللغة الإنجليزية أيضاً
+                logger.warning(f"Missing translation for key: {key}")
+                return f"[Missing text: {key}]"
+        return text
+    except Exception as e:
+        logger.error(f"Error getting translation: {str(e)}")
+        return f"[Error: {key}]"
 
 def remove_overlapping_faces(faces, overlap_thresh=0.3):
     """
