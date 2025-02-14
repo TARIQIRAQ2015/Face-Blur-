@@ -64,10 +64,20 @@ class FaceBlurProcessor:
 def check_poppler_installation() -> bool:
     """التحقق من تثبيت Poppler"""
     try:
-        from pdf2image.pdf2image import check_poppler_version
-        check_poppler_version()
+        # التحقق من وجود الملفات الضرورية
+        import shutil
+        poppler_path = shutil.which('pdftoppm')
+        if poppler_path is None:
+            logger.warning("Poppler غير موجود في مسار النظام")
+            return False
+            
+        # محاولة تحويل PDF فارغ للتأكد من عمل المكتبة
+        test_pdf = io.BytesIO(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n2 0 obj\n<</Type/Pages/Kids[3 0 R]/Count 1>>\nendobj\n3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 1 1]>>\nendobj\nxref\n0 4\n0000000000 65535 f\n0000000015 00000 n\n0000000061 00000 n\n0000000114 00000 n\ntrailer\n<</Size 4/Root 1 0 R>>\nstartxref\n176\n%%EOF\n")
+        convert_from_bytes(test_pdf.getvalue())
+        logger.info("تم التحقق من تثبيت Poppler بنجاح")
         return True
-    except Exception:
+    except Exception as e:
+        logger.error(f"خطأ في التحقق من Poppler: {str(e)}")
         return False
 
 def process_pdf(pdf_bytes: io.BytesIO, processor: FaceBlurProcessor) -> List[Image.Image]:
@@ -121,13 +131,14 @@ def show_poppler_installation_instructions():
     #### على نظام Ubuntu/Debian:
     ```bash
     sudo apt-get update
-    sudo apt-get install -y poppler-utils
+    sudo apt-get install -y poppler-utils libpoppler-dev libpoppler-cpp-dev
     ```
     
     #### على نظام Windows:
     1. قم بتحميل Poppler من [هذا الرابط](https://github.com/oschwartz10612/poppler-windows/releases/)
     2. قم باستخراج الملفات إلى مجلد (مثلاً C:\\Program Files\\poppler)
     3. أضف مسار المجلد bin إلى متغيرات النظام PATH
+    4. أعد تشغيل الجهاز
     
     #### على نظام macOS:
     ```bash
