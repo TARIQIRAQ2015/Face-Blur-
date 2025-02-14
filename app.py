@@ -272,7 +272,7 @@ def process_pdf(pdf_bytes):
                 
                 image = process_pdf_page(pdf_bytes.getvalue(), page_num)
                 if image:
-                    processed_image = blur_faces_simple(image)
+                    processed_image = detect_and_blur_face_advanced(image)
                     all_processed_images.append(processed_image)
                     
                     # عرض الصور
@@ -593,6 +593,9 @@ def main():
     try:
         load_css()
         configure_page()
+        
+        # تحميل ملف معالم الوجه إذا لم يكن موجوداً
+        download_face_landmarks()
         
         # العنوان الرئيسي والترجمة في صف واحد
         st.markdown('<div class="main-title">🎭 أداة تمويه الوجوه / Face Blur Tool</div>', unsafe_allow_html=True)
