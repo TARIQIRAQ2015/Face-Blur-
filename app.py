@@ -89,61 +89,77 @@ def configure_page():
 
 def detect_faces_advanced(image):
     """
-    كشف الوجوه باستخدام خوارزميات متعددة
+    كشف الوجوه باستخدام خوارزميات متعددة مع تحسين الدقة
     """
     try:
-        # تحويل الصورة إلى مصفوفة numpy
         img_array = np.array(image)
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         
-        # تحميل جميع الكواشف المتوفرة
+        # تحميل الكواشف الأساسية فقط لتحسين الدقة
         cascades = {
             'frontal_default': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'),
-            'frontal_alt': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt.xml'),
             'frontal_alt2': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'),
             'profile': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml'),
-            'eye': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml'),
-            'eye_tree_eyeglasses': cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye_tree_eyeglasses.xml'),
         }
         
-        # معلمات الكشف المختلفة للتجربة
-        scale_factors = [1.05, 1.1, 1.15]
-        min_neighbors_options = [3, 4, 5]
+        # تحسين معلمات الكشف
+        scale_factors = [1.1]  # تقليل عدد المحاولات لتحسين الدقة
+        min_neighbors_options = [5]  # زيادة عدد الجيران للتأكد من دقة الكشف
         
         all_faces = []
+        confidence_threshold = 50  # عتبة الثقة للكشف
         
-        # تجربة كل كاشف مع معلمات مختلفة
+        # تجربة كل كاشف
         for cascade_name, cascade in cascades.items():
             if cascade_name.startswith('frontal'):
-                for scale_factor in scale_factors:
-                    for min_neighbors in min_neighbors_options:
-                        faces = cascade.detectMultiScale(
-                            gray,
-                            scaleFactor=scale_factor,
-                            minNeighbors=min_neighbors,
-                            minSize=(20, 20),
-                            maxSize=(1000, 1000),
-                            flags=cv2.CASCADE_SCALE_IMAGE
-                        )
-                        all_faces.extend(faces)
+                faces = cascade.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=5,
+                    minSize=(30, 30),  # زيادة الحجم الأدنى
+                    maxSize=(800, 800),
+                    flags=cv2.CASCADE_SCALE_IMAGE
+                )
+                
+                # التحقق من جودة الكشف
+                for (x, y, w, h) in faces:
+                    face_roi = gray[y:y+h, x:x+w]
+                    # حساب متوسط التباين في منطقة الوجه
+                    variance = np.var(face_roi)
+                    if variance > confidence_threshold:
+                        all_faces.append((x, y, w, h))
             
             elif cascade_name == 'profile':
                 # كشف الوجوه الجانبية في الاتجاهين
-                for angle in [0, 1]:  # 0 للصورة الأصلية، 1 للصورة المعكوسة
+                for angle in [0, 1]:
                     temp_gray = cv2.flip(gray, angle) if angle == 1 else gray
-                    for scale_factor in scale_factors:
-                        faces = cascade.detectMultiScale(
-                            temp_gray,
-                            scaleFactor=scale_factor,
-                            minNeighbors=4,
-                            minSize=(20, 20),
-                            maxSize=(1000, 1000)
-                        )
+                    faces = cascade.detectMultiScale(
+                        temp_gray,
+                        scaleFactor=1.1,
+                        minNeighbors=7,  # زيادة للتأكد من دقة الكشف
+                        minSize=(30, 30),
+                        maxSize=(800, 800)
+                    )
+                    
+                    # التحقق من الوجوه الجانبية
+                    for face in faces:
+                        x, y, w, h = face
                         if angle == 1:
-                            faces = [(temp_gray.shape[1] - x - w, y, w, h) for (x, y, w, h) in faces]
-                        all_faces.extend(faces)
+                            x = temp_gray.shape[1] - x - w
+                        face_roi = gray[y:y+h, x:x+w]
+                        variance = np.var(face_roi)
+                        if variance > confidence_threshold:
+                            all_faces.append((x, y, w, h))
         
-        return all_faces, cascades['eye']
+        # إزالة التداخلات وتصفية النتائج
+        filtered_faces = []
+        if all_faces:
+            # تحويل إلى مصفوفة numpy
+            all_faces = np.array(all_faces)
+            # إزالة الكشف المتكرر
+            filtered_faces = remove_overlapping_faces(all_faces, overlap_thresh=0.3)
+        
+        return filtered_faces, None
     
     except Exception as e:
         logger.error(f"خطأ في كشف الوجوه: {str(e)}")
@@ -151,27 +167,23 @@ def detect_faces_advanced(image):
 
 def blur_faces_simple(image):
     """
-    تمويه الوجوه بشكل دقيق يتناسب مع حدود الوجه
+    تمويه الوجوه مع تحسين الدقة
     """
     try:
         img_array = np.array(image)
         
-        # كشف الوجوه باستخدام الدالة المتقدمة
-        all_faces, eye_cascade = detect_faces_advanced(image)
-        
-        # إزالة التداخلات
-        filtered_faces = remove_overlapping_faces(all_faces)
+        # كشف الوجوه
+        filtered_faces, _ = detect_faces_advanced(image)
         
         # تمويه كل وجه
         for (x, y, w, h) in filtered_faces:
-            # توسيع منطقة الوجه قليلاً
-            padding = int(min(w, h) * 0.1)
+            # تقليل حجم منطقة التمويه
+            padding = int(min(w, h) * 0.05)  # تقليل التمويه الزائد
             x1 = max(0, x - padding)
             y1 = max(0, y - padding)
             x2 = min(img_array.shape[1], x + w + padding)
             y2 = min(img_array.shape[0], y + h + padding)
             
-            # تمويه منطقة الوجه بقيمة ثابتة
             face_roi = img_array[y1:y2, x1:x2]
             blurred_face = cv2.GaussianBlur(face_roi, (99, 99), 30)
             img_array[y1:y2, x1:x2] = blurred_face
