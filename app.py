@@ -89,7 +89,7 @@ def configure_page():
 
 def blur_faces_simple(image):
     """
-    تمويه الوجوه بشكل دائري يتناسب مع حجم الوجه
+    تمويه الوجوه بشكل دقيق يتناسب مع حدود الوجه
     """
     try:
         img_array = np.array(image)
@@ -98,45 +98,81 @@ def blur_faces_simple(image):
         # تحميل كواشف الوجوه المختلفة
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
+        eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
         
-        # كشف الوجوه الأمامية
+        # كشف الوجوه الأمامية مع تحسين المعلمات
         faces = face_cascade.detectMultiScale(
             gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
+            scaleFactor=1.05,  # قيمة أصغر لزيادة الدقة
+            minNeighbors=4,    # تقليل عدد الجيران المطلوب
             minSize=(20, 20),  # حجم أصغر للوجوه
+            maxSize=(1000, 1000),  # حجم أكبر للوجوه
             flags=cv2.CASCADE_SCALE_IMAGE
         )
         
         # كشف الوجوه الجانبية
         profiles = profile_cascade.detectMultiScale(
             gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(20, 20)
+            scaleFactor=1.05,
+            minNeighbors=4,
+            minSize=(20, 20),
+            maxSize=(1000, 1000)
         )
         
+        # كشف الوجوه من الجهة الأخرى (عكس الصورة)
+        flipped = cv2.flip(gray, 1)
+        profiles_flipped = profile_cascade.detectMultiScale(
+            flipped,
+            scaleFactor=1.05,
+            minNeighbors=4,
+            minSize=(20, 20),
+            maxSize=(1000, 1000)
+        )
+        
+        # تحويل إحداثيات الوجوه المعكوسة
+        profiles_flipped = [(gray.shape[1] - x - w, y, w, h) for (x, y, w, h) in profiles_flipped]
+        
         # دمج جميع الوجوه المكتشفة
-        all_faces = list(faces) + list(profiles)
+        all_faces = list(faces) + list(profiles) + list(profiles_flipped)
+        
+        # إزالة التداخلات بين المستطيلات
+        def overlap(rect1, rect2):
+            x1, y1, w1, h1 = rect1
+            x2, y2, w2, h2 = rect2
+            return not (x1 + w1 < x2 or x2 + w2 < x1 or y1 + h1 < y2 or y2 + h2 < y1)
+        
+        filtered_faces = []
+        for face in all_faces:
+            if not any(overlap(face, other) for other in filtered_faces):
+                filtered_faces.append(face)
         
         # تمويه كل وجه
-        for (x, y, w, h) in all_faces:
-            # إنشاء قناع دائري
-            mask = np.zeros((h, w), dtype=np.uint8)
-            center = (w//2, h//2)
-            radius = min(w, h)//2
-            cv2.circle(mask, center, radius, 255, -1)
+        for (x, y, w, h) in filtered_faces:
+            # توسيع منطقة الوجه قليلاً
+            padding = int(min(w, h) * 0.1)
+            x1 = max(0, x - padding)
+            y1 = max(0, y - padding)
+            x2 = min(img_array.shape[1], x + w + padding)
+            y2 = min(img_array.shape[0], y + h + padding)
             
             # تمويه منطقة الوجه
-            face_roi = img_array[y:y+h, x:x+w]
+            face_roi = img_array[y1:y2, x1:x2]
             blurred_face = cv2.GaussianBlur(face_roi, (99, 99), 30)
+            img_array[y1:y2, x1:x2] = blurred_face
             
-            # تطبيق القناع الدائري
-            mask_3d = np.stack([mask]*3, axis=2) / 255.0
-            face_roi[:] = blurred_face * mask_3d + face_roi * (1 - mask_3d)
+            # محاولة كشف العيون للتأكد من دقة الكشف
+            eyes = eye_cascade.detectMultiScale(gray[y:y+h, x:x+w])
+            if len(eyes) > 0:
+                # إذا تم العثور على عيون، قم بتمويه إضافي للمنطقة
+                for (ex, ey, ew, eh) in eyes:
+                    eye_roi = img_array[y+ey:y+ey+eh, x+ex:x+ex+ew]
+                    blurred_eye = cv2.GaussianBlur(eye_roi, (51, 51), 15)
+                    img_array[y+ey:y+ey+eh, x+ex:x+ex+ew] = blurred_eye
         
-        if not all_faces:
+        if not filtered_faces:
             st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
+        else:
+            st.success(f"✅ تم العثور على {len(filtered_faces)} وجه/وجوه")
             
         return Image.fromarray(img_array)
     except Exception as e:
