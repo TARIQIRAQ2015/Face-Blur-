@@ -1,4 +1,7 @@
 poppler-utils
+libpoppler-dev
+libpoppler-cpp-dev
 build-essential
 cmake
-libgl1-mesa-glx 
+libgl1-mesa-glx
+python3-dev 
