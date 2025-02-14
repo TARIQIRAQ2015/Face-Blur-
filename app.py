@@ -1,6 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
+import mediapipe as mp
 from pdf2image import convert_from_bytes
 from PIL import Image
 import io
@@ -168,95 +169,66 @@ def set_luxury_style():
     </style>
     """, unsafe_allow_html=True)
 
-class SimpleFaceDetector:
+class MediaPipeFaceDetector:
     def __init__(self):
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
-
-    def filter_detection(self, x, y, w, h, image_shape):
-        """فلترة النتائج لتجنب النصوص والأشكال غير المطلوبة"""
-        area = w * h
-        image_area = image_shape[0] * image_shape[1]
-        aspect_ratio = w / h
-        
-        # تعديل نسبة المساحة المقبولة
-        min_area_ratio = 0.005  # تقليل الحد الأدنى للمساحة للوجوه الصغيرة
-        max_area_ratio = 0.3    # زيادة الحد الأقصى للوجوه الكبيرة
-        
-        if area < (image_area * min_area_ratio) or area > (image_area * max_area_ratio):
-            return False
-            
-        # تحسين نسب الوجه
-        if aspect_ratio < 0.7 or aspect_ratio > 1.4:  # نسب أكثر دقة للوجوه
-            return False
-            
-        # تعديل الحد الأدنى للأبعاد
-        if w < 20 or h < 20:  # تقليل الحد الأدنى للوجوه الصغيرة
-            return False
-            
-        return True
+        self.mp_face_detection = mp.solutions.face_detection
+        self.face_detection = self.mp_face_detection.FaceDetection(
+            model_selection=1,  # نموذج للمدى البعيد
+            min_detection_confidence=0.5  # حساسية الكشف
+        )
 
     def detect_faces(self, image: np.ndarray) -> list:
         faces = []
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        results = self.face_detection.process(rgb_image)
         
-        # تحسين معايير الكشف
-        scales = [1.05, 1.1, 1.15]  # استخدام عدة مقاييس للكشف
-        for scale in scales:
-            # كشف الوجوه الأمامية
-            front_faces = self.face_cascade.detectMultiScale(
-                gray,
-                scaleFactor=scale,
-                minNeighbors=4,  # تقليل للكشف عن الوجوه الصغيرة
-                minSize=(20, 20),  # تقليل الحد الأدنى
-                maxSize=(300, 300),  # تحديد الحد الأقصى
-                flags=cv2.CASCADE_SCALE_IMAGE
-            )
-            
-            # إضافة الوجوه المكتشفة
-            for (x, y, w, h) in front_faces:
-                if self.filter_detection(x, y, w, h, image.shape):
-                    # تعديل حجم منطقة التمويه
-                    padding = 0.08 if w < 50 else 0.15  # padding أقل للوجوه الصغيرة
-                    padding_x = int(w * padding)
-                    padding_y = int(h * padding)
+        if results.detections:
+            for detection in results.detections:
+                if detection.score[0] > 0.5:
+                    bbox = detection.location_data.relative_bounding_box
+                    h, w = image.shape[:2]
                     
-                    x = max(0, x - padding_x)
-                    y = max(0, y - padding_y)
-                    w = min(w + 2*padding_x, image.shape[1] - x)
-                    h = min(h + 2*padding_y, image.shape[0] - y)
+                    x = max(0, int(bbox.xmin * w))
+                    y = max(0, int(bbox.ymin * h))
+                    width = min(int(bbox.width * w), w - x)
+                    height = min(int(bbox.height * h), h - y)
+                    
+                    # توسيع منطقة الوجه
+                    padding = 0.2
+                    x = max(0, int(x - width * padding))
+                    y = max(0, int(y - height * padding))
+                    width = min(int(width * (1 + 2*padding)), w - x)
+                    height = min(int(height * (1 + 2*padding)), h - y)
                     
                     faces.append({
-                        'box': [x, y, w, h],
-                        'confidence': 0.9
+                        'box': [x, y, width, height],
+                        'confidence': float(detection.score[0])
                     })
         
         return faces
 
 class FaceBlurProcessor:
     def __init__(self):
-        self.detector = SimpleFaceDetector()
+        self.detector = MediaPipeFaceDetector()
     
     def create_circular_mask(self, image_shape, center, radius):
         mask = np.zeros(image_shape[:2], dtype=np.float32)
         y, x = np.ogrid[:image_shape[0], :image_shape[1]]
         dist_from_center = np.sqrt((x - center[0])**2 + (y - center[1])**2)
         
-        # تحسين التدرج للتمويه
+        # تدرج ناعم للتمويه
         mask = np.clip(1 - dist_from_center/radius, 0, 1)
-        mask = cv2.GaussianBlur(mask, (21, 21), 0)  # تنعيم أقل للحواف
+        mask = cv2.GaussianBlur(mask, (31, 31), 0)
         return mask
     
     def apply_circular_blur(self, image: np.ndarray, box: list) -> np.ndarray:
         x, y, w, h = box
         center = (x + w//2, y + h//2)
+        radius = int(max(w, h) * 0.6)
         
-        # تعديل نصف القطر حسب حجم الوجه
-        radius = int(max(w, h) * (0.5 if w < 50 else 0.65))
-        
-        # تعديل قوة التمويه حسب حجم الوجه
-        blur_size = 51 if w < 50 else 99
-        blurred = cv2.GaussianBlur(image, (blur_size, blur_size), 30)
+        # تمويه قوي متعدد المستويات
+        blurred = cv2.GaussianBlur(image, (99, 99), 30)
+        blurred = cv2.GaussianBlur(blurred, (99, 99), 30)
         
         mask = self.create_circular_mask(image.shape, center, radius)
         mask = np.expand_dims(mask, axis=2)
@@ -354,8 +326,8 @@ def main():
                         "application/pdf"
                     )
                     
-                else:
-                    image = Image.open(uploaded_file)
+        else:
+            image = Image.open(uploaded_file)
                     processed, faces_count = processor.process_image(image)
                     
                     st.markdown("""
@@ -377,8 +349,8 @@ def main():
                         <p>تاريخ المعالجة: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
                     </div>
                     """, unsafe_allow_html=True)
-                    
-                    buf = io.BytesIO()
+            
+            buf = io.BytesIO()
                     processed.save(buf, format="PNG")
                     st.download_button(
                         "⬇️ تحميل الصورة المعالجة",
