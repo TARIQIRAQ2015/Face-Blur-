@@ -56,130 +56,83 @@ def set_page_config():
 
 class AdvancedFaceDetector:
     def __init__(self):
-        # تكوين كاشف MediaPipe للوجوه
+        # تكوين كاشف MediaPipe للوجوه البشرية فقط
         self.mp_face = mp.solutions.face_detection.FaceDetection(
             model_selection=1,  # نموذج للمدى البعيد
-            min_detection_confidence=0.15  # حساسية عالية للكشف
+            min_detection_confidence=0.6  # زيادة الثقة لتجنب الكشف الخاطئ
         )
         
-        # تكوين كاشف Haar للوجوه
+        # تكوين كاشف Haar للوجوه البشرية
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
     
-    def enhance_image(self, image: np.ndarray) -> np.ndarray:
-        """تحسين جودة الصورة للكشف عن الوجوه"""
-        # تحسين التباين
-        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-        cl = clahe.apply(l)
-        enhanced = cv2.merge((cl,a,b))
-        enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+    def filter_face_detections(self, box: list, image_shape: tuple) -> bool:
+        """التحقق من أن المنطقة المكتشفة هي وجه بشري"""
+        x, y, w, h = box
+        height, width = image_shape[:2]
         
-        # تقليل الضوضاء
-        enhanced = cv2.fastNlMeansDenoisingColored(enhanced, None, 10, 10, 7, 21)
-        return enhanced
+        # نسبة العرض إلى الارتفاع للوجه البشري
+        aspect_ratio = w / h
+        if not (0.5 <= aspect_ratio <= 1.5):  # الوجوه البشرية عادة قريبة من المربع
+            return False
+        
+        # حجم الوجه بالنسبة للصورة
+        face_area = w * h
+        image_area = width * height
+        face_area_ratio = face_area / image_area
+        
+        # تجاهل المناطق الصغيرة جداً أو الكبيرة جداً
+        if face_area_ratio < 0.01 or face_area_ratio > 0.5:
+            return False
+        
+        return True
 
     def detect_faces(self, image: np.ndarray) -> list:
         faces = []
-        original_height, original_width = image.shape[:2]
+        height, width = image.shape[:2]
         
-        # تحسين جودة الصورة
-        enhanced = self.enhance_image(image)
+        # MediaPipe Detection
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        results = self.mp_face.process(rgb_image)
         
-        # قائمة المقاييس للكشف عن الوجوه بأحجام مختلفة
-        scales = [0.8, 1.0, 1.5, 2.0]  # إضافة مقياس أصغر للوجوه الكبيرة
-        
-        for scale in scales:
-            current_width = int(original_width * scale)
-            current_height = int(original_height * scale)
-            
-            # تغيير حجم الصورة للمقياس الحالي
-            if scale != 1.0:
-                current_image = cv2.resize(enhanced, (current_width, current_height))
-            else:
-                current_image = enhanced
-            
-            # MediaPipe Detection
-            rgb_image = cv2.cvtColor(current_image, cv2.COLOR_BGR2RGB)
-            results = self.mp_face.process(rgb_image)
-            
-            if results.detections:
-                for detection in results.detections:
-                    bbox = detection.location_data.relative_bounding_box
-                    x = max(0, int(bbox.xmin * current_width))
-                    y = max(0, int(bbox.ymin * current_height))
-                    w = min(int(bbox.width * current_width), current_width - x)
-                    h = min(int(bbox.height * current_height), current_height - y)
-                    
-                    # تحويل الإحداثيات للمقياس الأصلي
-                    scaled_x = int(x / scale)
-                    scaled_y = int(y / scale)
-                    scaled_w = int(w / scale)
-                    scaled_h = int(h / scale)
-                    
-                    # توسيع منطقة الوجه قليلاً
-                    padding = 0.1  # 10% padding
-                    pad_x = int(scaled_w * padding)
-                    pad_y = int(scaled_h * padding)
-                    
-                    scaled_x = max(0, scaled_x - pad_x)
-                    scaled_y = max(0, scaled_y - pad_y)
-                    scaled_w = min(scaled_w + 2*pad_x, original_width - scaled_x)
-                    scaled_h = min(scaled_h + 2*pad_y, original_height - scaled_y)
-                    
+        if results.detections:
+            for detection in results.detections:
+                bbox = detection.location_data.relative_bounding_box
+                x = max(0, int(bbox.xmin * width))
+                y = max(0, int(bbox.ymin * height))
+                w = min(int(bbox.width * width), width - x)
+                h = min(int(bbox.height * height), height - y)
+                
+                # التحقق من أن المنطقة المكتشفة هي وجه بشري
+                if self.filter_face_detections([x, y, w, h], image.shape):
                     faces.append({
-                        'box': [scaled_x, scaled_y, scaled_w, scaled_h],
+                        'box': [x, y, w, h],
                         'confidence': detection.score[0],
                         'source': 'mediapipe'
                     })
-            
-            # Haar Cascade Detection
-            gray = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
+        
+        # Haar Cascade Detection كاحتياطي
+        if not faces:  # فقط إذا لم يجد MediaPipe أي وجوه
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             gray = cv2.equalizeHist(gray)
             
-            # كشف الوجوه الأمامية
-            front_faces = self.face_cascade.detectMultiScale(
+            detected_faces = self.face_cascade.detectMultiScale(
                 gray,
-                scaleFactor=1.05,
-                minNeighbors=3,
-                minSize=(20, 20)
+                scaleFactor=1.1,
+                minNeighbors=5,  # زيادة للتقليل من الكشف الخاطئ
+                minSize=(30, 30)  # زيادة الحجم الأدنى
             )
             
-            # كشف الوجوه الجانبية
-            profile_faces = self.profile_cascade.detectMultiScale(
-                gray,
-                scaleFactor=1.05,
-                minNeighbors=3,
-                minSize=(20, 20)
-            )
-            
-            # دمج نتائج الكشف
-            for (x, y, w, h) in np.vstack((front_faces, profile_faces)) if len(profile_faces) > 0 else front_faces:
-                scaled_x = int(x / scale)
-                scaled_y = int(y / scale)
-                scaled_w = int(w / scale)
-                scaled_h = int(h / scale)
-                
-                # توسيع منطقة الوجه
-                padding = 0.1
-                pad_x = int(scaled_w * padding)
-                pad_y = int(scaled_h * padding)
-                
-                scaled_x = max(0, scaled_x - pad_x)
-                scaled_y = max(0, scaled_y - pad_y)
-                scaled_w = min(scaled_w + 2*pad_x, original_width - scaled_x)
-                scaled_h = min(scaled_h + 2*pad_y, original_height - scaled_y)
-                
-                faces.append({
-                    'box': [scaled_x, scaled_y, scaled_w, scaled_h],
-                    'confidence': 0.8,
-                    'source': 'haar'
-                })
+            for (x, y, w, h) in detected_faces:
+                if self.filter_face_detections([x, y, w, h], image.shape):
+                    faces.append({
+                        'box': [x, y, w, h],
+                        'confidence': 0.8,
+                        'source': 'haar'
+                    })
         
-        return self.merge_detections(faces, original_width, original_height)
+        return self.merge_detections(faces)
     
-    def merge_detections(self, faces: list, width: int, height: int) -> list:
+    def merge_detections(self, faces: list) -> list:
         if not faces:
             return []
         
@@ -191,13 +144,6 @@ class AdvancedFaceDetector:
             should_add = True
             box1 = face['box']
             
-            # تجاهل المربعات الصغيرة جداً أو الكبيرة جداً
-            area = box1[2] * box1[3]
-            total_area = width * height
-            if area < (total_area * 0.001) or area > (total_area * 0.5):
-                continue
-            
-            # التحقق من التداخل مع الوجوه الموجودة
             for existing_face in final_faces:
                 box2 = existing_face['box']
                 iou = self.calculate_iou(box1, box2)
@@ -234,24 +180,29 @@ class FaceBlurProcessor:
     def apply_strong_blur(self, image: np.ndarray, box: list) -> np.ndarray:
         x, y, w, h = box
         center = (x + w//2, y + h//2)
-        radius = int(max(w, h) * 0.7)
+        radius = int(max(w, h) * 0.8)  # زيادة منطقة التمويه
         
         # إنشاء قناع متدرج للتمويه
         mask = np.zeros(image.shape[:2], dtype=np.float32)
         cv2.circle(mask, center, radius, 1.0, -1)
         
-        # تطبيق تمويه متعدد المستويات
+        # تطبيق تمويه قوي جداً متعدد المستويات
         blur_levels = [
             cv2.GaussianBlur(image, (k, k), 0)
-            for k in [51, 99, 151, 201]
+            for k in [99, 151, 201]  # زيادة قوة التمويه
         ]
         
-        # دمج مستويات التمويه
         result = image.copy()
         for i, blurred in enumerate(blur_levels):
-            weight = cv2.GaussianBlur(mask, (99, 99), 30) * (1 - i/len(blur_levels))
+            weight = cv2.GaussianBlur(mask, (151, 151), 50) * (1 - i/len(blur_levels))
             weight = np.expand_dims(weight, -1)
             result = result * (1 - weight) + blurred * weight
+        
+        # تطبيق تمويه إضافي للتأكد من إخفاء الملامح
+        final_blur = cv2.GaussianBlur(result, (201, 201), 60)
+        final_weight = cv2.GaussianBlur(mask, (201, 201), 60)
+        final_weight = np.expand_dims(final_weight, -1)
+        result = result * (1 - final_weight * 0.5) + final_blur * (final_weight * 0.5)
         
         return result.astype(np.uint8)
     
