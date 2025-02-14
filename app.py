@@ -19,16 +19,23 @@ logger = logging.getLogger(__name__)
 class FaceBlurProcessor:
     def __init__(self):
         """تهيئة معالج تمويه الوجوه مع نماذج متقدمة"""
+        # نموذج FaceMesh للكشف الدقيق عن معالم الوجه
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=True,
-            max_num_faces=10,
+            max_num_faces=20,  # زيادة عدد الوجوه المكتشفة
             refine_landmarks=True,
-            min_detection_confidence=0.5
+            min_detection_confidence=0.4  # خفض عتبة الثقة لاكتشاف الوجوه الصغيرة
         )
+        
+        # نموذج FaceDetection للكشف عن الوجوه البعيدة والصغيرة
         self.face_detection = mp.solutions.face_detection.FaceDetection(
-            model_selection=1,
-            min_detection_confidence=0.7
+            model_selection=1,  # استخدام النموذج الكامل للمدى البعيد
+            min_detection_confidence=0.4
         )
+        
+        # إعداد كاشف Haar Cascade كاحتياطي
+        cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        self.face_cascade = cv2.CascadeClassifier(cascade_path)
     
     def create_circular_mask(self, height: int, width: int, center: Tuple[int, int], radius: int) -> np.ndarray:
         """إنشاء قناع دائري للتمويه"""
@@ -80,25 +87,72 @@ class FaceBlurProcessor:
         
         return landmarks_list
     
-    def blur_faces(self, image: Image.Image) -> Image.Image:
-        """
-        تطبيق التمويه الدائري على الوجوه في الصورة
+    def enhance_image(self, image: np.ndarray) -> np.ndarray:
+        """تحسين جودة الصورة للكشف عن الوجوه الصغيرة"""
+        # تحسين التباين
+        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        cl = clahe.apply(l)
+        enhanced = cv2.merge((cl,a,b))
+        enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
         
-        Args:
-            image: صورة PIL
-        Returns:
-            صورة PIL بعد تمويه الوجوه
-        """
-        try:
-            # تحويل الصورة إلى مصفوفة NumPy
-            img = np.array(image)
+        # تقليل الضوضاء
+        enhanced = cv2.fastNlMeansDenoisingColored(enhanced, None, 10, 10, 7, 21)
+        return enhanced
+    
+    def detect_small_faces(self, image: np.ndarray) -> List[dict]:
+        """كشف الوجوه الصغيرة باستخدام عدة تقنيات"""
+        height, width = image.shape[:2]
+        faces = []
+        
+        # تجربة أحجام مختلفة من الصورة
+        scales = [1.0, 1.5, 2.0]  # تكبير الصورة للكشف عن الوجوه الصغيرة
+        
+        for scale in scales:
+            # تغيير حجم الصورة
+            if scale != 1.0:
+                width_scaled = int(width * scale)
+                height_scaled = int(height * scale)
+                scaled_image = cv2.resize(image, (width_scaled, height_scaled))
+            else:
+                scaled_image = image
+                width_scaled, height_scaled = width, height
             
-            # كشف معالم الوجوه
-            face_landmarks = self.get_face_landmarks(img)
+            # كشف الوجوه باستخدام Haar Cascade
+            gray = cv2.cvtColor(scaled_image, cv2.COLOR_BGR2GRAY)
+            cascade_faces = self.face_cascade.detectMultiScale(
+                gray,
+                scaleFactor=1.1,
+                minNeighbors=5,
+                minSize=(20, 20)
+            )
+            
+            # تحويل النتائج إلى الحجم الأصلي
+            for (x, y, w, h) in cascade_faces:
+                center_x = int((x + w/2) / scale)
+                center_y = int((y + h/2) / scale)
+                radius = int(max(w, h) / scale * 0.7)
+                
+                faces.append({
+                    'center': (center_x, center_y),
+                    'radius': radius
+                })
+        
+        return faces
+    
+    def blur_faces(self, image: Image.Image) -> Image.Image:
+        """تطبيق التمويه الدائري على الوجوه في الصورة"""
+        try:
+            img = np.array(image)
+            enhanced_img = self.enhance_image(img)
+            
+            # كشف معالم الوجه باستخدام FaceMesh
+            face_landmarks = self.get_face_landmarks(enhanced_img)
             
             if not face_landmarks:
-                # استخدام نموذج الكشف عن الوجوه كاحتياطي
-                results = self.face_detection.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                # استخدام FaceDetection كخيار ثاني
+                results = self.face_detection.process(cv2.cvtColor(enhanced_img, cv2.COLOR_BGR2RGB))
                 if results.detections:
                     height, width = img.shape[:2]
                     for detection in results.detections:
@@ -117,19 +171,39 @@ class FaceBlurProcessor:
                             'radius': radius
                         })
             
-            if not face_landmarks:
+            # البحث عن الوجوه الصغيرة
+            small_faces = self.detect_small_faces(enhanced_img)
+            face_landmarks.extend(small_faces)
+            
+            # إزالة التكرارات
+            unique_faces = []
+            for face in face_landmarks:
+                is_duplicate = False
+                for unique_face in unique_faces:
+                    dist = math.sqrt(
+                        (face['center'][0] - unique_face['center'][0])**2 +
+                        (face['center'][1] - unique_face['center'][1])**2
+                    )
+                    if dist < (face['radius'] + unique_face['radius']) * 0.5:
+                        is_duplicate = True
+                        break
+                if not is_duplicate:
+                    unique_faces.append(face)
+            
+            if not unique_faces:
                 logger.info("لم يتم العثور على وجوه في الصورة")
                 return image
             
             # تطبيق التمويه الدائري على كل وجه
-            for face in face_landmarks:
+            for face in unique_faces:
                 img = self.apply_circular_blur(
                     img,
                     face['center'],
-                    face['radius']
+                    face['radius'],
+                    blur_amount=99
                 )
             
-            logger.info(f"تم العثور على {len(face_landmarks)} وجه/وجوه")
+            logger.info(f"تم العثور على {len(unique_faces)} وجه/وجوه")
             return Image.fromarray(img)
         
         except Exception as e:
