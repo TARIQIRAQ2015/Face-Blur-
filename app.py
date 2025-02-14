@@ -125,35 +125,42 @@ def detect_and_blur_faces(image):
         # تحسين الصورة للكشف
         enhanced = cv2.convertScaleAbs(img_array, alpha=1.2, beta=15)
         
-        # كشف الوجوه
+        # كشف الوجوه باستخدام MediaPipe
         with mp_face_detection.FaceDetection(
-            model_selection=1,
-            min_detection_confidence=0.7
+            model_selection=1,  # نموذج كامل للدقة العالية
+            min_detection_confidence=0.75  # دقة عالية مع مرونة معقولة
         ) as face_detector:
             # محاولة الكشف على الصورة الأصلية والمحسنة
             results = face_detector.process(img_array)
             if not results.detections:
                 results = face_detector.process(enhanced)
                 if not results.detections:
+                    st.warning(TRANSLATIONS['ar']['no_faces'])
                     return image
 
             faces_detected = 0
             
             # معالجة كل وجه تم اكتشافه
             for detection in results.detections:
-                if detection.score[0] < 0.7:
+                # التحقق من نسبة الثقة
+                if detection.score[0] < 0.75:
                     continue
                 
+                # استخراج إحداثيات الوجه
                 bbox = detection.location_data.relative_bounding_box
                 x = int(bbox.xmin * width)
                 y = int(bbox.ymin * height)
                 w = int(bbox.width * width)
                 h = int(bbox.height * height)
                 
+                # التحقق من صحة الإحداثيات
+                if x < 0 or y < 0 or w <= 0 or h <= 0:
+                    continue
+                
                 # حساب مركز ونصف قطر الدائرة
                 center_x = x + w // 2
                 center_y = y + h // 2
-                radius = int(max(w, h) * 0.7)
+                radius = int(max(w, h) * 0.7)  # تغطية كاملة للوجه
                 
                 # إنشاء قناع دائري
                 mask = np.zeros((height, width), dtype=np.uint8)
@@ -185,10 +192,14 @@ def detect_and_blur_faces(image):
                     
                     faces_detected += 1
             
+            if faces_detected > 0:
+                st.success(TRANSLATIONS['ar']['faces_found'].format(faces_detected))
+            
             return Image.fromarray(result)
             
     except Exception as e:
         logger.error(f"خطأ في معالجة الصورة: {str(e)}")
+        st.error(TRANSLATIONS['ar']['processing_error'])
         return image
 
 def blur_faces_simple(image):
@@ -261,57 +272,103 @@ def process_pdf(pdf_file):
     معالجة ملف PDF وتمويه الوجوه في كل صفحة
     """
     try:
-        with st.spinner(get_text('pdf_processing', lang)):
-            # تحويل PDF إلى صور
-            images = convert_from_bytes(pdf_file.read())
-            
+        if not PDF_SUPPORT:
+            st.error(TRANSLATIONS['ar']['pdf_not_available'])
+            return
+
+        with st.spinner(TRANSLATIONS['ar']['pdf_processing']):
+            try:
+                # تحويل PDF إلى صور
+                images = convert_from_bytes(
+                    pdf_file.read(),
+                    dpi=200,
+                    fmt='ppm',
+                    thread_count=4
+                )
+            except Exception as e:
+                logger.error(f"خطأ في تحويل PDF: {str(e)}")
+                st.error(TRANSLATIONS['ar']['pdf_error'])
+                return
+
+            if not images:
+                st.warning(TRANSLATIONS['ar']['no_pages'])
+                return
+
             # إنشاء قائمة للصور المعالجة
             processed_images = []
             total_pages = len(images)
-            
+
+            # التحقق من عدد الصفحات
+            if total_pages > 100:
+                st.warning(TRANSLATIONS['ar']['page_limit'])
+                images = images[:100]
+                total_pages = 100
+
             # إنشاء شريط التقدم
             progress_bar = st.progress(0)
-            
+            status_text = st.empty()
+
             # معالجة كل صفحة
             for i, image in enumerate(images):
-                # تحديث شريط التقدم
-                progress = (i + 1) / total_pages
-                progress_bar.progress(progress)
-                
-                # معالجة الصورة باستخدام نفس دالة التمويه الدائري
-                processed_image = detect_and_blur_faces(image)
-                processed_images.append(processed_image)
-                
-                # تنظيف الذاكرة
-                gc.collect()
-            
-            # إنشاء ملف PDF جديد
-            output_pdf = io.BytesIO()
-            if processed_images:
+                try:
+                    # تحديث شريط التقدم
+                    progress = (i + 1) / total_pages
+                    progress_bar.progress(progress)
+                    status_text.text(TRANSLATIONS['ar']['processing_page'].format(i+1, total_pages))
+
+                    # تحويل الصورة إلى RGB إذا لزم الأمر
+                    if image.mode != 'RGB':
+                        image = image.convert('RGB')
+
+                    # معالجة الصورة
+                    processed_image = detect_and_blur_faces(image)
+                    processed_images.append(processed_image)
+
+                    # تنظيف الذاكرة
+                    gc.collect()
+
+                except Exception as e:
+                    logger.error(f"خطأ في معالجة الصفحة {i+1}: {str(e)}")
+                    processed_images.append(image)
+                    continue
+
+            # إزالة شريط التقدم والنص
+            progress_bar.empty()
+            status_text.empty()
+
+            if not processed_images:
+                st.error(TRANSLATIONS['ar']['processing_error'])
+                return
+
+            try:
+                # إنشاء ملف PDF جديد
+                output_pdf = io.BytesIO()
                 processed_images[0].save(
-                    output_pdf, 
+                    output_pdf,
                     'PDF',
                     save_all=True,
                     append_images=processed_images[1:],
-                    resolution=100.0
+                    resolution=200.0,
+                    quality=95
                 )
-            
-            # إزالة شريط التقدم
-            progress_bar.empty()
-            
-            st.success(get_text('pdf_complete', lang))
-            
-            # زر تحميل الملف المعالج
-            st.download_button(
-                get_text('download_pdf', lang),
-                output_pdf.getvalue(),
-                "processed_document.pdf",
-                "application/pdf"
-            )
-            
+
+                st.success(TRANSLATIONS['ar']['success'])
+
+                # زر تحميل الملف المعالج
+                st.download_button(
+                    TRANSLATIONS['ar']['download_pdf'],
+                    output_pdf.getvalue(),
+                    "processed_document.pdf",
+                    "application/pdf"
+                )
+
+            except Exception as e:
+                logger.error(f"خطأ في حفظ PDF: {str(e)}")
+                st.error(TRANSLATIONS['ar']['save_error'])
+
     except Exception as e:
         logger.error(f"خطأ في معالجة ملف PDF: {str(e)}")
-        st.error(get_text('processing_error', lang))
+        st.error(TRANSLATIONS['ar']['processing_error'])
 
 def load_css():
     st.markdown("""
@@ -520,15 +577,21 @@ TRANSLATIONS = {
         'download_button': '⬇️ تحميل الصورة المعدلة',
         'no_faces': '⚠️ لم يتم العثور على وجوه في الصورة',
         'faces_found': '✅ تم العثور على {} وجه/وجوه',
-        'pdf_processing': '🔄 جاري معالجة {} صفحة...',
+        'pdf_processing': '🔄 جاري معالجة الملف...',
         'pdf_complete': '✅ تمت معالجة جميع الصفحات!',
-        'download_pdf': '⬇️ تحميل الملف الكامل بعد المعالجة (PDF)',
+        'download_pdf': '⬇️ تحميل الملف المعالج (PDF)',
         'notes': '📝 ملاحظات',
         'note_formats': 'يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF',
         'note_pdf': 'معالجة ملفات PDF قد تستغرق بعض الوقت حسب عدد الصفحات',
-        'processing_error': '❌ حدث خطأ أثناء معالجة الملف',
+        'processing_error': '❌ حدث خطأ أثناء المعالجة',
         'pdf_not_available': '❌ عذراً، دعم ملفات PDF غير متوفر حالياً',
-        'app_error': '❌ حدث خطأ في التطبيق. يرجى المحاولة مرة أخرى'
+        'app_error': '❌ حدث خطأ في التطبيق. يرجى المحاولة مرة أخرى',
+        'pdf_error': '❌ حدث خطأ في قراءة ملف PDF. تأكد من أن الملف صالح.',
+        'no_pages': '⚠️ لم يتم العثور على صفحات في الملف',
+        'page_limit': '⚠️ يمكن معالجة 100 صفحة كحد أقصى. سيتم معالجة أول 100 صفحة.',
+        'processing_page': 'جاري معالجة الصفحة {} من {}',
+        'success': '✅ تمت المعالجة بنجاح',
+        'save_error': '❌ حدث خطأ في حفظ الملف النهائي'
     },
     'en': {
         'title': '🎭 Face Blur Tool',
@@ -540,15 +603,21 @@ TRANSLATIONS = {
         'download_button': '⬇️ Download Processed Image',
         'no_faces': '⚠️ No faces detected in the image',
         'faces_found': '✅ Found {} face(s)',
-        'pdf_processing': '🔄 Processing {} pages...',
+        'pdf_processing': '🔄 Processing file...',
         'pdf_complete': '✅ All pages processed!',
-        'download_pdf': '⬇️ Download Complete Processed File (PDF)',
+        'download_pdf': '⬇️ Download Processed File (PDF)',
         'notes': '📝 Notes',
         'note_formats': 'You can upload JPG, JPEG, PNG images or PDF files',
         'note_pdf': 'Processing PDF files may take some time depending on the number of pages',
-        'processing_error': '❌ Error processing file',
+        'processing_error': '❌ Error during processing',
         'pdf_not_available': '❌ Sorry, PDF support is currently not available',
-        'app_error': '❌ Application error occurred. Please try again'
+        'app_error': '❌ Application error occurred. Please try again',
+        'pdf_error': '❌ Error reading PDF file. Please make sure the file is valid.',
+        'no_pages': '⚠️ No pages found in the file',
+        'page_limit': '⚠️ Maximum 100 pages can be processed. Processing first 100 pages.',
+        'processing_page': 'Processing page {} of {}',
+        'success': '✅ Processing completed successfully',
+        'save_error': '❌ Error saving the final file'
     }
 }
 
