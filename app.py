@@ -94,79 +94,41 @@ def detect_and_blur_face_advanced(image):
     كشف وتمويه الوجوه بشكل دقيق
     """
     try:
-        import face_recognition
-        
         # تحويل الصورة إلى مصفوفة numpy
         img_array = np.array(image)
         
-        # كشف مواقع الوجوه
-        face_locations = face_recognition.face_locations(img_array, model="hog")
+        # كشف مواقع الوجوه باستخدام OpenCV
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        faces = face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=(30, 30),
+            flags=cv2.CASCADE_SCALE_IMAGE
+        )
         
-        # كشف معالم الوجوه
-        face_landmarks_list = face_recognition.face_landmarks(img_array, face_locations)
-        
-        if not face_landmarks_list:
+        if len(faces) == 0:
             st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
             return image
-            
-        # إنشاء قناع للتمويه
-        mask = Image.new('L', image.size, 0)
-        draw = ImageDraw.Draw(mask)
-        
-        for face_landmarks in face_landmarks_list:
-            # رسم كل جزء من الوجه
-            for facial_feature in face_landmarks.values():
-                draw.polygon(facial_feature, fill=255)
-        
-        # توسيع منطقة القناع قليلاً
-        mask = mask.filter(ImageFilter.GaussianBlur(5))
-        mask = Image.fromarray((np.array(mask) > 128).astype(np.uint8) * 255)
-        
-        # تمويه الصورة
-        blurred = cv2.GaussianBlur(img_array, (99, 99), 30)
-        
-        # دمج الصور
-        mask_array = np.array(mask) / 255.0
-        mask_array = np.stack([mask_array] * 3, axis=2)
-        result = img_array * (1 - mask_array) + blurred * mask_array
-        
-        st.success(f"✅ تم العثور على {len(face_landmarks_list)} وجه/وجوه")
-        return Image.fromarray(result.astype(np.uint8))
-        
-    except Exception as e:
-        logger.error(f"خطأ في معالجة الصورة: {str(e)}")
-        st.error(f"حدث خطأ أثناء معالجة الصورة: {str(e)}")
-        return image
-
-def blur_faces_simple(image):
-    """
-    تمويه الوجوه مع تحسين الدقة
-    """
-    try:
-        img_array = np.array(image)
-        
-        # كشف الوجوه
-        filtered_faces, _ = detect_faces_advanced(image)
         
         # تمويه كل وجه
-        for (x, y, w, h) in filtered_faces:
-            # تقليل حجم منطقة التمويه
-            padding = int(min(w, h) * 0.05)  # تقليل التمويه الزائد
+        for (x, y, w, h) in faces:
+            # توسيع منطقة الوجه قليلاً
+            padding = int(min(w, h) * 0.1)
             x1 = max(0, x - padding)
             y1 = max(0, y - padding)
             x2 = min(img_array.shape[1], x + w + padding)
             y2 = min(img_array.shape[0], y + h + padding)
             
+            # تمويه منطقة الوجه
             face_roi = img_array[y1:y2, x1:x2]
             blurred_face = cv2.GaussianBlur(face_roi, (99, 99), 30)
             img_array[y1:y2, x1:x2] = blurred_face
         
-        if not filtered_faces:
-            st.warning("⚠️ لم يتم العثور على وجوه في الصورة")
-        else:
-            st.success(f"✅ تم العثور على {len(filtered_faces)} وجه/وجوه")
-            
+        st.success(f"✅ تم العثور على {len(faces)} وجه/وجوه")
         return Image.fromarray(img_array)
+        
     except Exception as e:
         logger.error(f"خطأ في معالجة الصورة: {str(e)}")
         st.error(f"حدث خطأ أثناء معالجة الصورة: {str(e)}")
@@ -494,52 +456,6 @@ def get_text(key, lang, *args):
         text = text.format(*args)
     return text
 
-def remove_overlapping_faces(faces, overlap_thresh=0.3):
-    """
-    إزالة التداخلات بين المستطيلات المكتشفة للوجوه
-    """
-    if len(faces) == 0:
-        return []
-    
-    # تحويل القائمة إلى مصفوفة numpy
-    faces = np.array(faces)
-    
-    # حساب المساحات
-    areas = faces[:, 2] * faces[:, 3]
-    
-    # ترتيب الوجوه حسب المساحة (من الأكبر إلى الأصغر)
-    idxs = areas.argsort()[::-1]
-    
-    # قائمة للاحتفاظ بالوجوه المقبولة
-    keep = []
-    
-    while len(idxs) > 0:
-        # إضافة أكبر وجه إلى القائمة
-        current_idx = idxs[0]
-        keep.append(current_idx)
-        
-        if len(idxs) == 1:
-            break
-            
-        # حساب نسبة التداخل مع باقي الوجوه
-        xx1 = np.maximum(faces[current_idx][0], faces[idxs[1:]][:, 0])
-        yy1 = np.maximum(faces[current_idx][1], faces[idxs[1:]][:, 1])
-        xx2 = np.minimum(faces[current_idx][0] + faces[current_idx][2],
-                        faces[idxs[1:]][:, 0] + faces[idxs[1:]][:, 2])
-        yy2 = np.minimum(faces[current_idx][1] + faces[current_idx][3],
-                        faces[idxs[1:]][:, 1] + faces[idxs[1:]][:, 3])
-        
-        w = np.maximum(0, xx2 - xx1)
-        h = np.maximum(0, yy2 - yy1)
-        
-        # حساب المساحة المتداخلة
-        overlap = (w * h) / areas[idxs[1:]]
-        
-        # حذف الوجوه المتداخلة
-        idxs = np.delete(idxs, np.concatenate(([0], np.where(overlap > overlap_thresh)[0] + 1)))
-    
-    return faces[keep].tolist()
-
 def main():
     try:
         load_css()
@@ -560,9 +476,6 @@ def main():
             )
         
         st.markdown("---")
-        
-        # تطبيق اتجاه النص حسب اللغة
-        text_class = 'arabic-text' if lang == 'ar' else 'english-text'
         
         # منطقة رفع الملفات
         uploaded_file = st.file_uploader(
@@ -587,15 +500,13 @@ def main():
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.markdown(f'<p class="{text_class}">{get_text("original_image", lang)}</p>', unsafe_allow_html=True)
-                        st.image(image, use_container_width=True)
+                        st.image(image, caption=get_text("original_image", lang), use_container_width=True)
                     
                     with st.spinner(get_text('processing', lang)):
                         processed_image = detect_and_blur_face_advanced(image)
                     
                     with col2:
-                        st.markdown(f'<p class="{text_class}">{get_text("processed_image", lang)}</p>', unsafe_allow_html=True)
-                        st.image(processed_image, use_container_width=True)
+                        st.image(processed_image, caption=get_text("processed_image", lang), use_container_width=True)
                     
                     # زر التحميل
                     buf = io.BytesIO()
@@ -610,18 +521,6 @@ def main():
             except Exception as e:
                 logger.error(f"Error processing file: {str(e)}")
                 st.error(get_text('processing_error', lang))
-        
-        # الملاحظات
-        st.markdown("---")
-        st.markdown(f"""
-        <div class="{text_class}">
-            <h3>{get_text('notes', lang)}</h3>
-            <ul>
-                <li>{get_text('note_formats', lang)}</li>
-                {f'<li>{get_text("note_pdf", lang)}</li>' if PDF_SUPPORT else ''}
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
         
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
