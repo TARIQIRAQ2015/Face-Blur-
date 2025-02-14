@@ -170,31 +170,38 @@ def set_luxury_style():
 
 class SimpleFaceDetector:
     def __init__(self):
-        # تحميل نماذج الكشف عن الوجوه من OpenCV
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
 
-    def enhance_image(self, image):
-        """تحسين جودة الصورة للكشف عن الوجوه"""
-        # تحسين التباين
-        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-        cl = clahe.apply(l)
-        enhanced = cv2.merge((cl,a,b))
-        return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
+    def filter_detection(self, x, y, w, h, image_shape):
+        """فلترة النتائج لتجنب النصوص والأشكال الصغيرة"""
+        area = w * h
+        image_area = image_shape[0] * image_shape[1]
+        aspect_ratio = w / h
+        
+        # تجاهل المناطق الصغيرة جداً
+        if area < (image_area * 0.01):
+            return False
+            
+        # تجاهل المناطق ذات النسب غير المنطقية للوجوه
+        if aspect_ratio < 0.5 or aspect_ratio > 2.0:
+            return False
+            
+        # تجاهل المناطق الصغيرة جداً بالأبعاد
+        if w < 30 or h < 30:
+            return False
+            
+        return True
 
     def detect_faces(self, image: np.ndarray) -> list:
         faces = []
-        # تحسين جودة الصورة
-        enhanced = self.enhance_image(image)
-        gray = cv2.cvtColor(enhanced, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
         # كشف الوجوه الأمامية
         front_faces = self.face_cascade.detectMultiScale(
             gray,
             scaleFactor=1.1,
-            minNeighbors=5,
+            minNeighbors=6,  # زيادة للتقليل من الكشف الخاطئ
             minSize=(30, 30),
             flags=cv2.CASCADE_SCALE_IMAGE
         )
@@ -203,7 +210,7 @@ class SimpleFaceDetector:
         profile_faces = self.profile_cascade.detectMultiScale(
             gray,
             scaleFactor=1.1,
-            minNeighbors=5,
+            minNeighbors=6,
             minSize=(30, 30),
             flags=cv2.CASCADE_SCALE_IMAGE
         )
@@ -212,18 +219,19 @@ class SimpleFaceDetector:
         all_faces = np.vstack((front_faces, profile_faces)) if len(profile_faces) > 0 else front_faces
         
         for (x, y, w, h) in all_faces:
-            # توسيع منطقة الوجه
-            padding_x = int(w * 0.2)
-            padding_y = int(h * 0.2)
-            x = max(0, x - padding_x)
-            y = max(0, y - padding_y)
-            w = min(w + 2*padding_x, image.shape[1] - x)
-            h = min(h + 2*padding_y, image.shape[0] - y)
-            
-            faces.append({
-                'box': [x, y, w, h],
-                'confidence': 0.9
-            })
+            if self.filter_detection(x, y, w, h, image.shape):
+                # توسيع منطقة الوجه
+                padding_x = int(w * 0.1)
+                padding_y = int(h * 0.1)
+                x = max(0, x - padding_x)
+                y = max(0, y - padding_y)
+                w = min(w + 2*padding_x, image.shape[1] - x)
+                h = min(h + 2*padding_y, image.shape[0] - y)
+                
+                faces.append({
+                    'box': [x, y, w, h],
+                    'confidence': 0.9
+                })
         
         return faces
 
@@ -231,31 +239,46 @@ class FaceBlurProcessor:
     def __init__(self):
         self.detector = SimpleFaceDetector()
     
-    def apply_blur(self, image: np.ndarray, box: list) -> np.ndarray:
+    def create_circular_mask(self, image_shape, center, radius):
+        """إنشاء قناع دائري متدرج"""
+        mask = np.zeros(image_shape[:2], dtype=np.float32)
+        y, x = np.ogrid[:image_shape[0], :image_shape[1]]
+        dist_from_center = np.sqrt((x - center[0])**2 + (y - center[1])**2)
+        
+        # إنشاء تدرج ناعم
+        mask = np.clip(1 - dist_from_center/radius, 0, 1)
+        mask = cv2.GaussianBlur(mask, (31, 31), 0)
+        return mask
+    
+    def apply_circular_blur(self, image: np.ndarray, box: list) -> np.ndarray:
         x, y, w, h = box
-        face_region = image[y:y+h, x:x+w]
+        center = (x + w//2, y + h//2)
+        radius = int(max(w, h) * 0.6)  # تقليل نصف القطر قليلاً
         
-        # تطبيق تمويه قوي جداً
-        blurred = cv2.GaussianBlur(face_region, (99, 99), 30)
-        blurred = cv2.GaussianBlur(blurred, (99, 99), 30)
+        # إنشاء نسخة مموهة من الصورة كاملة
+        blurred = cv2.GaussianBlur(image, (99, 99), 30)
         
-        # دمج المنطقة المموهة مع الصورة الأصلية
+        # إنشاء قناع دائري متدرج
+        mask = self.create_circular_mask(image.shape, center, radius)
+        mask = np.expand_dims(mask, axis=2)
+        
+        # دمج الصورة الأصلية مع المموهة
         result = image.copy()
-        result[y:y+h, x:x+w] = blurred
+        result = image * (1 - mask) + blurred * mask
         
-        return result
+        return result.astype(np.uint8)
     
     def process_image(self, image: Image.Image) -> tuple:
         try:
             img = np.array(image)
-            if len(img.shape) == 2:  # التحقق من الصور بالأبيض والأسود
+            if len(img.shape) == 2:
                 img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             
             faces = self.detector.detect_faces(img)
             
             if faces:
                 for face in faces:
-                    img = self.apply_blur(img, face['box'])
+                    img = self.apply_circular_blur(img, face['box'])
             
             return Image.fromarray(img), len(faces)
             
