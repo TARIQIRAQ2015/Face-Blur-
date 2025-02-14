@@ -192,63 +192,41 @@ def main():
         blur_intensity = st.slider("شدة التمويه", 25, 199, 99, step=2)
         
         # تحديد أنواع الملفات المدعومة
-        allowed_types = ["jpg", "jpeg", "png"]
-        if PDF_SUPPORT:
-            allowed_types.append("pdf")
+        allowed_types = ["jpg", "jpeg", "png", "pdf"]  # إضافة PDF مباشرة
         
         # رفع الملف
         uploaded_file = st.file_uploader(
-            "📤 ارفع صورة" + (" أو ملف PDF" if PDF_SUPPORT else ""),
+            "📤 ارفع صورة أو ملف PDF",
             type=allowed_types,
-            help="يمكنك رفع صور بصيغ JPG, JPEG, PNG" + (" أو ملف PDF" if PDF_SUPPORT else "")
+            help="يمكنك رفع صور بصيغ JPG, JPEG, PNG أو ملف PDF"
         )
         
         if uploaded_file is not None:
             try:
-                file_type = uploaded_file.type
+                # التحقق من نوع الملف بناءً على الامتداد
+                file_extension = uploaded_file.name.lower().split('.')[-1]
                 
-                if PDF_SUPPORT and "pdf" in file_type:
-                    with st.spinner("جاري معالجة ملف PDF..."):
-                        pdf_images = process_pdf(uploaded_file)
+                if file_extension == 'pdf':
+                    if not PDF_SUPPORT:
+                        st.error("عذراً، دعم ملفات PDF غير متوفر حالياً. الرجاء تأكد من تثبيت المكتبات المطلوبة.")
+                        return
                         
-                        if pdf_images:
-                            for idx, image in enumerate(pdf_images):
-                                st.markdown(f"### صفحة {idx + 1}")
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.image(image, caption="الصورة الأصلية")
-                                
-                                processed_image = blur_faces_simple(image)
-                                
-                                with col2:
-                                    st.image(processed_image, caption="الصورة بعد التمويه")
-                                
-                                buf = io.BytesIO()
-                                processed_image.save(buf, format="PNG")
-                                st.download_button(
-                                    f"⬇️ تحميل الصفحة {idx + 1}",
-                                    buf.getvalue(),
-                                    f"blurred_page_{idx + 1}.png",
-                                    "image/png"
-                                )
+                    with st.spinner("جاري معالجة ملف PDF..."):
+                        process_pdf(uploaded_file)
                 else:
-                    # عرض الصورة الأصلية
+                    # معالجة الصور العادية
                     image = Image.open(uploaded_file)
                     col1, col2 = st.columns(2)
                     
                     with col1:
                         st.image(image, caption="الصورة الأصلية")
                     
-                    # معالجة الصورة
                     with st.spinner("جاري معالجة الصورة..."):
                         processed_image = blur_faces_simple(image)
                     
-                    # عرض الصورة المعالجة
                     with col2:
                         st.image(processed_image, caption="الصورة بعد التمويه")
                     
-                    # زر التحميل
                     buf = io.BytesIO()
                     processed_image.save(buf, format="PNG")
                     st.download_button(
